@@ -1,0 +1,6 @@
+{
+  "name": "CargaCheck - Conferência de Carga & Expedição",
+  "description": "Sistema mobile e tablet para conferência de carga, leitura de QR Code/código de barras EAN, conferência de faturamento e geração de Book de Carregamento.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

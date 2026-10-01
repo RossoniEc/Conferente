@@ -1,0 +1,481 @@
+import jsPDF from 'jspdf';
+import { CargoInspection } from '../types';
+
+export function generateBookCarregamentoPdf(
+  inspection: CargoInspection,
+  empresaNome = 'LOGÍSTICA & DISTRIBUIÇÃO NACIONAL LTDA',
+  unidadeCD = 'CD 01 - Matriz São Paulo',
+  clientInstruction?: string
+): { doc: jsPDF; filename: string; blobUrl: string } {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let y = 14;
+
+  // Colors
+  const darkNavy = [15, 23, 42]; // slate-900
+  const primaryBlue = [30, 64, 175]; // blue-800
+  const amberWarning = [217, 119, 6];
+  const emeraldSuccess = [22, 101, 52];
+  const borderGray = [226, 232, 240];
+
+  // Header Banner
+  doc.setFillColor(darkNavy[0], darkNavy[1], darkNavy[2]);
+  doc.rect(10, 10, pageWidth - 20, 22, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BOOK DE CARREGAMENTO & CONFERÊNCIA DE CARGA', 15, 20);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${empresaNome} • ${unidadeCD}`, 15, 26);
+  doc.text(`EMITIDO EM: ${new Date().toLocaleString('pt-BR')}`, pageWidth - 15, 26, { align: 'right' });
+
+  y = 38;
+
+  // Identification Box
+  doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(10, y, pageWidth - 20, 26, 2, 2, 'FD');
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text('DADOS GERAIS DO TRANSPORTE E EXPEDIÇÃO', 14, y + 6);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+
+  // Column 1
+  doc.text(`DT (Doc. Transporte):`, 14, y + 13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(inspection.dt, 50, y + 13);
+
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Placa do Veículo:`, 14, y + 19);
+  doc.setFont('helvetica', 'bold');
+  doc.text(inspection.placa || 'NÃO INFORMADA', 50, y + 19);
+
+  // Column 2
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Motorista:`, 95, y + 13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(inspection.motorista || 'Severino Silva', 120, y + 13);
+
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Transportadora:`, 95, y + 19);
+  doc.setFont('helvetica', 'bold');
+  doc.text(inspection.transportadora || 'TransLog Brasil S/A', 120, y + 19);
+
+  // Column 3
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Nº do Lacre:`, 150, y + 13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(inspection.numeroLacre || 'N/A', 170, y + 13);
+
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Conferente:`, 150, y + 19);
+  doc.setFont('helvetica', 'bold');
+  doc.text(inspection.conferente, 170, y + 19);
+
+  y += 28;
+
+  // Quadro Resumo: Total Planejado x Carregado x Faturado x Diferença
+  {
+    const resumoPlanejado = inspection.itensPlanejados.reduce((a, i) => a + i.quantidadePlanejada, 0);
+    const resumoCorte = inspection.itensConferidos.reduce((a, i) => a + (i.corteOperacional?.quantidade || 0), 0);
+    const resumoCarregado = inspection.itensConferidos.reduce((a, i) => a + i.quantidadeCarregada, 0);
+    const faturamento = inspection.faturamento;
+    const resumoFaturado = faturamento?.itensFaturados?.reduce((a, i) => a + i.quantidadeFaturada, 0);
+    const temFaturado = resumoFaturado !== undefined;
+    // Faturada: Carregado - Faturado. Ainda sem faturamento: Carregado - (Planejado - Corte)
+    const resumoDif = temFaturado
+      ? resumoCarregado - (resumoFaturado as number)
+      : resumoCarregado - (resumoPlanejado - resumoCorte);
+
+    const boxW = (pageWidth - 20 - 3 * 3) / 4;
+    const boxH = 17;
+    const cells: { label: string; value: string; sub?: string; color: number[] }[] = [
+      {
+        label: 'TOTAL PLANEJADO',
+        value: `${resumoPlanejado} vol.`,
+        sub: resumoCorte > 0 ? `Corte operacional: -${resumoCorte}` : undefined,
+        color: [15, 23, 42],
+      },
+      { label: 'TOTAL CARREGADO', value: `${resumoCarregado} vol.`, color: emeraldSuccess },
+      {
+        label: 'TOTAL FATURADO',
+        value: temFaturado ? `${resumoFaturado} vol.` : 'PENDENTE',
+        sub: temFaturado ? 'Planilha FAT' : 'Conferência fiscal não realizada',
+        color: [109, 40, 217],
+      },
+      {
+        label: 'DIFERENÇA',
+        value: resumoDif === 0 ? '0' : resumoDif > 0 ? `+${resumoDif}` : String(resumoDif),
+        sub: temFaturado ? 'Carregado - Faturado' : 'Carregado - Planejado líquido',
+        color: resumoDif === 0 ? emeraldSuccess : [220, 38, 38],
+      },
+    ];
+
+    cells.forEach((cell, i) => {
+      const x = 10 + i * (boxW + 3);
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x, y, boxW, boxH, 2, 2, 'FD');
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text(cell.label, x + boxW / 2, y + 5, { align: 'center' });
+
+      doc.setTextColor(cell.color[0], cell.color[1], cell.color[2]);
+      doc.setFontSize(12);
+      doc.text(cell.value, x + boxW / 2, y + 11.5, { align: 'center' });
+
+      if (cell.sub) {
+        doc.setTextColor(100, 116, 139);
+        doc.setFontSize(5.8);
+        doc.setFont('helvetica', 'normal');
+        doc.text(cell.sub, x + boxW / 2, y + 15.2, { align: 'center' });
+      }
+    });
+
+    y += boxH + 3;
+  }
+
+  // Client Special Instruction Box if present
+  if (clientInstruction) {
+    doc.setDrawColor(248, 113, 113);
+    doc.setFillColor(254, 242, 242);
+    doc.roundedRect(10, y, pageWidth - 20, 8, 2, 2, 'FD');
+    doc.setTextColor(185, 28, 28);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`EXIGÊNCIA DO CLIENTE: ${clientInstruction}`, 14, y + 5.5);
+    y += 11;
+  } else {
+    y += 4;
+  }
+
+  // SKU Summary Table Header
+  doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
+  doc.rect(10, y, pageWidth - 20, 8, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+
+  doc.text('SKU', 13, y + 5.5);
+  doc.text('DESCRIÇÃO DO PRODUTO', 32, y + 5.5);
+  doc.text('LOTE', 88, y + 5.5);
+  doc.text('PLAN.', 122, y + 5.5, { align: 'right' });
+  doc.text('CORTE', 139, y + 5.5, { align: 'right' });
+  doc.text('CARREG.', 158, y + 5.5, { align: 'right' });
+  doc.text('DIF.', 175, y + 5.5, { align: 'right' });
+  doc.text('STATUS', 194, y + 5.5, { align: 'right' });
+
+  y += 8;
+
+  // Build mapping of SKUs
+  let totalPlanejado = 0;
+  let totalCarregado = 0;
+  let totalDivergencias = 0;
+
+  // Combine planned items and checked items
+  const skusCombined = new Map<string, {
+    sku: string;
+    descricao: string;
+    planejado: number;
+    corte: number;
+    carregado: number;
+    lotes: string[];
+    fotos: string[];
+  }>();
+  let totalCorteTabela = 0;
+  // Resumo dos cortes por SKU: quantidade e motivo(s)
+  const cortesResumo: { sku: string; quantidade: number; motivo: string }[] = [];
+
+  inspection.itensPlanejados.forEach((item) => {
+    totalPlanejado += item.quantidadePlanejada;
+    skusCombined.set(item.sku, {
+      sku: item.sku,
+      descricao: item.descricao,
+      planejado: item.quantidadePlanejada,
+      corte: 0,
+      carregado: 0,
+      lotes: [],
+      fotos: [],
+    });
+  });
+
+  inspection.itensConferidos.forEach((item) => {
+    totalCarregado += item.quantidadeCarregada;
+    const existing = skusCombined.get(item.sku);
+    // Vários lotes na mesma leitura: lista cada lote com sua quantidade
+    const itemLotes = item.lotes?.length
+      ? item.lotes.map((l) => `${l.lote} (${l.quantidade})`)
+      : item.lote
+      ? [item.lote]
+      : [];
+    const corte = item.corteOperacional?.quantidade || 0;
+    totalCorteTabela += corte;
+    if (item.corteOperacional && corte > 0) {
+      const prev = cortesResumo.find((c) => c.sku === item.sku && c.motivo === item.corteOperacional!.motivo);
+      if (prev) prev.quantidade += corte;
+      else cortesResumo.push({ sku: item.sku, quantidade: corte, motivo: item.corteOperacional.motivo });
+    }
+    if (existing) {
+      existing.carregado += item.quantidadeCarregada;
+      existing.corte += corte;
+      itemLotes.forEach((l) => {
+        if (!existing.lotes.includes(l)) existing.lotes.push(l);
+      });
+      if (item.fotos) {
+        existing.fotos.push(...item.fotos);
+      }
+    } else {
+      skusCombined.set(item.sku, {
+        sku: item.sku,
+        descricao: item.descricao,
+        planejado: 0,
+        corte,
+        carregado: item.quantidadeCarregada,
+        lotes: itemLotes,
+        fotos: item.fotos || [],
+      });
+    }
+  });
+
+  // Render Table Rows
+  let rowIndex = 0;
+  skusCombined.forEach((val) => {
+    // Corte operacional abatido do planejado
+    const dif = val.carregado - (val.planejado - val.corte);
+    if (dif !== 0) totalDivergencias++;
+
+    const isEven = rowIndex % 2 === 0;
+    if (isEven) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(10, y, pageWidth - 20, 7, 'F');
+    }
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(10, y + 7, pageWidth - 10, y + 7);
+
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.text(val.sku, 13, y + 4.8);
+
+    doc.setFont('helvetica', 'normal');
+    // Truncate description if too long
+    const descShort = val.descricao.length > 32 ? val.descricao.substring(0, 30) + '...' : val.descricao;
+    doc.text(descShort, 32, y + 4.8);
+
+    const loteStr = val.lotes.length > 0 ? val.lotes.join(', ') : 'S/ LOTE';
+    doc.text(loteStr.length > 22 ? loteStr.substring(0, 20) + '...' : loteStr, 88, y + 4.8);
+
+    doc.text(String(val.planejado), 122, y + 4.8, { align: 'right' });
+    if (val.corte > 0) {
+      doc.setTextColor(194, 65, 12); // orange-700
+      doc.text(`-${val.corte}`, 139, y + 4.8, { align: 'right' });
+      doc.setTextColor(30, 41, 59);
+    } else {
+      doc.text('-', 139, y + 4.8, { align: 'right' });
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text(String(val.carregado), 158, y + 4.8, { align: 'right' });
+
+    if (dif === 0) {
+      doc.setTextColor(emeraldSuccess[0], emeraldSuccess[1], emeraldSuccess[2]);
+      doc.text('0', 175, y + 4.8, { align: 'right' });
+      doc.text('OK', 194, y + 4.8, { align: 'right' });
+    } else if (dif > 0) {
+      doc.setTextColor(amberWarning[0], amberWarning[1], amberWarning[2]);
+      doc.text(`+${dif}`, 175, y + 4.8, { align: 'right' });
+      doc.text('SOBRA', 194, y + 4.8, { align: 'right' });
+    } else {
+      doc.setTextColor(220, 38, 38);
+      doc.text(String(dif), 175, y + 4.8, { align: 'right' });
+      doc.text('FALTA', 194, y + 4.8, { align: 'right' });
+    }
+
+    y += 7;
+    rowIndex++;
+  });
+
+  // Table Totals Footer
+  doc.setFillColor(241, 245, 249);
+  doc.rect(10, y, pageWidth - 20, 8, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+
+  doc.text('TOTAIS CONSOLIDADOS:', 13, y + 5.5);
+  doc.text(String(totalPlanejado), 122, y + 5.5, { align: 'right' });
+  if (totalCorteTabela > 0) doc.setTextColor(194, 65, 12);
+  doc.text(totalCorteTabela > 0 ? `-${totalCorteTabela}` : '-', 139, y + 5.5, { align: 'right' });
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(totalCarregado), 158, y + 5.5, { align: 'right' });
+
+  const difTotal = totalCarregado - (totalPlanejado - totalCorteTabela);
+
+  if (difTotal === 0) {
+    doc.setTextColor(emeraldSuccess[0], emeraldSuccess[1], emeraldSuccess[2]);
+    doc.text('0', 175, y + 5.5, { align: 'right' });
+    doc.text('CONFORME', 194, y + 5.5, { align: 'right' });
+  } else {
+    doc.setTextColor(220, 38, 38);
+    doc.text((difTotal > 0 ? `+${difTotal}` : String(difTotal)), 175, y + 5.5, { align: 'right' });
+    doc.text('DIVERGENTE', 194, y + 5.5, { align: 'right' });
+  }
+
+  y += 8;
+
+  // Resumo do corte operacional (SKU, quantidade e motivo) logo abaixo da tabela
+  if (cortesResumo.length > 0) {
+    const resumo = cortesResumo.map((c) => `SKU ${c.sku}: ${c.quantidade} vol. (${c.motivo})`).join('   •   ');
+    const linhas = [
+      ...(doc.splitTextToSize(
+        `CORTE OPERACIONAL - Total ${totalCorteTabela} vol.  |  ${resumo}`,
+        pageWidth - 28
+      ) as string[]),
+      'DIF. = Carregado - (Planejado - Corte)',
+    ];
+    const boxH = 4 + linhas.length * 3.6;
+    doc.setFillColor(255, 247, 237); // orange-50
+    doc.setDrawColor(253, 186, 116); // orange-300
+    doc.rect(10, y, pageWidth - 20, boxH, 'FD');
+    doc.setTextColor(154, 52, 18); // orange-800
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(linhas, 14, y + 4.2);
+    y += boxH + 6;
+  } else {
+    y += 6;
+  }
+
+  // Verification Box
+  doc.setFillColor(difTotal === 0 ? 240 : 254, difTotal === 0 ? 253 : 242, difTotal === 0 ? 244 : 242);
+  doc.setDrawColor(difTotal === 0 ? 74 : 239, difTotal === 0 ? 222 : 68, difTotal === 0 ? 128 : 68);
+  doc.roundedRect(10, y, pageWidth - 20, 16, 2, 2, 'FD');
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  if (difTotal === 0 && totalDivergencias === 0) {
+    doc.setTextColor(emeraldSuccess[0], emeraldSuccess[1], emeraldSuccess[2]);
+    doc.text('STATUS: CONFERÊNCIA CONCLUÍDA SEM DIVERGÊNCIAS', 14, y + 6);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Todos os itens físicos carregados conferem exatamente com a relação planejada do Documento de Transporte.', 14, y + 11);
+  } else {
+    doc.setTextColor(220, 38, 38);
+    doc.text(`STATUS: ATENÇÃO - DIVERGÊNCIA IDENTIFICADA (${totalDivergencias} ITEM(NS))`, 14, y + 6);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Diferença física acumulada: ${difTotal} unidades. Favor acionar o supervisor de expedição antes do fechamento.`, 14, y + 11);
+  }
+
+  y += 22;
+
+  // Book de Fotos Section
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BOOK FOTOGRÁFICO DE CARREGAMENTO & EVIDÊNCIAS', 10, y);
+  y += 4;
+
+  // Collect photos
+  const allPhotos: { label: string; dataUrl: string }[] = [];
+  if (inspection.fotoVeiculoInicio) {
+    allPhotos.push({ label: 'Veículo Chegada / Placa', dataUrl: inspection.fotoVeiculoInicio });
+  }
+  inspection.itensConferidos.forEach((item, idx) => {
+    item.fotos.forEach((foto, fIdx) => {
+      allPhotos.push({
+        label: `${item.sku} (Lote: ${item.lote || 'S/L'}) #${fIdx + 1}`,
+        dataUrl: foto,
+      });
+    });
+  });
+  if (inspection.fotoVeiculoFim) {
+    allPhotos.push({
+      label: `Fechamento / Lacre: ${inspection.numeroLacre || 'OK'}`,
+      dataUrl: inspection.fotoVeiculoFim,
+    });
+  }
+
+  // Draw photo grid or placeholders
+  if (allPhotos.length > 0) {
+    const photoWidth = 56;
+    const photoHeight = 42;
+    let photoX = 10;
+
+    allPhotos.slice(0, 3).forEach((item) => {
+      try {
+        doc.addImage(item.dataUrl, 'JPEG', photoX, y, photoWidth, photoHeight);
+      } catch {
+        // Fallback placeholder box
+        doc.setFillColor(241, 245, 249);
+        doc.rect(photoX, y, photoWidth, photoHeight, 'F');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Foto Registrada', photoX + 8, y + 20);
+      }
+
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(photoX, y, photoWidth, photoHeight, 'D');
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(photoX, y + photoHeight - 6, photoWidth, 6, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text(item.label.substring(0, 30), photoX + 2, y + photoHeight - 2);
+
+      photoX += photoWidth + 8;
+    });
+
+    y += photoHeight + 10;
+  } else {
+    doc.setFillColor(248, 250, 252);
+    doc.rect(10, y, pageWidth - 20, 20, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Fotos digitais anexadas ao registro eletrônico no WMS CargaCheck.', 15, y + 11);
+    y += 24;
+  }
+
+  // Signatures Section at bottom
+  const sigY = Math.max(y, pageHeight - 34);
+
+  doc.setDrawColor(148, 163, 184);
+  doc.line(15, sigY + 12, 90, sigY + 12);
+  doc.line(115, sigY + 12, 190, sigY + 12);
+
+  doc.setTextColor(71, 85, 105);
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`CONFERENTE: ${inspection.conferente.toUpperCase()}`, 15, sigY + 16);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Matrícula: ${inspection.matriculaConferente || 'CONF-8842'}`, 15, sigY + 20);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text(`MOTORISTA: ${(inspection.motorista || 'Severino Silva').toUpperCase()}`, 115, sigY + 16);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Placa: ${inspection.placa} • Lacre: ${inspection.numeroLacre || 'S/ LACRE'}`, 115, sigY + 20);
+
+  const cleanDt = (inspection.dt || 'DT').replace(/[^a-zA-Z0-9_-]/g, '');
+  const cleanPlaca = (inspection.placa || 'PLACA').replace(/[^a-zA-Z0-9_-]/g, '');
+  const filename = `Book_Carregamento_${cleanDt}_${cleanPlaca}.pdf`;
+  const blobUrl = doc.output('bloburl').toString();
+
+  return { doc, filename, blobUrl };
+}
