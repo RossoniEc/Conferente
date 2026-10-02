@@ -158,12 +158,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
         <div className="relative z-10 flex flex-col gap-4">
           <div>
-            <div className="flex items-center space-x-2 mb-1">
-              <span className="text-xl">{user.avatar || '👷'}</span>
-              <p className="text-xs text-amber-400 font-bold uppercase tracking-wider">
-                {user.role === 'supervisor' ? 'Supervisor Operacional' : 'Conferente de Expedição'} • {user.matricula}
-              </p>
-            </div>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
               Olá, {user.name}
             </h2>

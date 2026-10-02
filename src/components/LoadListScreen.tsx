@@ -28,6 +28,7 @@ interface LoadListScreenProps {
   // 'carregadas' = só 100% carregadas (Tópico 3); 'em_processo' = abaixo de 100% (Tópico 2)
   mode?: 'carregadas' | 'em_processo';
   listaNegra?: PlacaListaNegra[];
+  showImportButton?: boolean;
 }
 
 export const LoadListScreen: React.FC<LoadListScreenProps> = ({
@@ -39,6 +40,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
   title = 'Lista de Carga (100% Carregadas)',
   mode = 'carregadas',
   listaNegra = [],
+  showImportButton = true,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedInspectionForBook, setSelectedInspectionForBook] = useState<CargoInspection | null>(null);
@@ -122,14 +124,16 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
           </h2>
         </div>
 
-        <button
-          type="button"
-          onClick={onNavigateNewLoad}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-md shadow-blue-600/20 transition-all"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Importar Nova Carga</span>
-        </button>
+        {showImportButton && (
+          <button
+            type="button"
+            onClick={onNavigateNewLoad}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-md shadow-blue-600/20 transition-all"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Importar Nova Carga</span>
+          </button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}

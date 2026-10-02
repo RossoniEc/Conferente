@@ -9,6 +9,29 @@ interface CameraCaptureProps {
   presetType?: 'truck_front' | 'truck_back_seal' | 'pallet_cargo';
 }
 
+// Fotos ficam salvas no navegador (limite ~5 MB no total): reduz para no máx. 1280 px e JPEG 70%
+// (~100–250 KB por foto) e aplica a marca d'água com data/hora.
+const MAX_SIDE = 1280;
+const JPEG_QUALITY = 0.7;
+
+const renderPhoto = (source: CanvasImageSource, srcW: number, srcH: number): string => {
+  const scale = Math.min(1, MAX_SIDE / Math.max(srcW, srcH));
+  const w = Math.round(srcW * scale);
+  const h = Math.round(srcH * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas indisponível');
+  ctx.drawImage(source, 0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(10, h - 35, 320, 25);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText(`CargaCheck • ${new Date().toLocaleString('pt-BR')}`, 18, h - 18);
+  return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+};
+
 export const CameraCapture: React.FC<CameraCaptureProps> = ({
   title,
   subtitle,
@@ -21,6 +44,8 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraMsg, setCameraMsg] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -28,6 +53,16 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
     let isMounted = true;
 
     async function initCamera() {
+      // Câmera ao vivo só existe em HTTPS (ou localhost); fora disso, usa a câmera nativa via arquivo
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraActive(false);
+        setCameraMsg(
+          window.isSecureContext
+            ? 'Este dispositivo não oferece câmera ao vivo. Use "Tirar Foto / Galeria".'
+            : 'Câmera ao vivo requer HTTPS. Use "Tirar Foto / Galeria" para abrir a câmera do celular.'
+        );
+        return;
+      }
       try {
         const s = await navigator.mediaDevices.getUserMedia({
           video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -40,13 +75,11 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
         currentStream = s;
         setStream(s);
         setCameraActive(true);
-        if (videoRef.current) {
-          videoRef.current.srcObject = s;
-          videoRef.current.play().catch(() => {});
-        }
+        setCameraMsg(null);
       } catch (err) {
         console.warn('Unable to access camera directly:', err);
         setCameraActive(false);
+        setCameraMsg('Não foi possível abrir a câmera ao vivo (permissão negada ou câmera em uso). Use "Tirar Foto / Galeria".');
       }
     }
 
@@ -60,41 +93,53 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
     };
   }, [facingMode]);
 
-  const captureFrame = () => {
-    if (!videoRef.current) return;
-    try {
-      const video = videoRef.current;
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        // Add watermark timestamp
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(10, canvas.height - 35, 320, 25);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.fillText(`CargaCheck • ${new Date().toLocaleString('pt-BR')}`, 18, canvas.height - 18);
+  // Liga o stream ao <video> sempre que ele aparece na tela (também ao voltar de "Tirar Outra")
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && stream && !previewImage && video.srcObject !== stream) {
+      video.srcObject = stream;
+      video.play().catch(() => {});
+    }
+  }, [stream, cameraActive, previewImage]);
 
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setPreviewImage(dataUrl);
-      }
+  const captureFrame = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) {
+      setCameraMsg('A câmera ainda está iniciando. Aguarde a imagem aparecer e toque novamente.');
+      return;
+    }
+    try {
+      setPreviewImage(renderPhoto(video, video.videoWidth, video.videoHeight));
     } catch (err) {
       console.error('Error capturing frame:', err);
+      setCameraMsg('Falha ao capturar a foto. Tente novamente.');
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (typeof event.target?.result === 'string') {
-        setPreviewImage(event.target.result);
+    setProcessing(true);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        setPreviewImage(renderPhoto(img, img.naturalWidth, img.naturalHeight));
+        setCameraMsg(null);
+      } catch {
+        setCameraMsg('Não foi possível processar a imagem selecionada.');
+      } finally {
+        URL.revokeObjectURL(url);
+        setProcessing(false);
       }
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setProcessing(false);
+      setCameraMsg('Arquivo de imagem inválido.');
+    };
+    img.src = url;
   };
 
   // Preset demo generator in case device has no camera or running in desktop sandbox
@@ -223,7 +268,11 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
           ) : (
             <div className="p-6 text-center text-slate-400 space-y-3">
               <ImageIcon className="w-12 h-12 mx-auto text-slate-600" />
-              <p className="text-xs">Câmera indisponível. Carregue uma imagem ou gere uma simulação fotográfica.</p>
+              <p className="text-xs">
+                {processing
+                  ? 'Processando imagem…'
+                  : cameraMsg || 'Abrindo câmera… se não abrir, use "Tirar Foto / Galeria".'}
+              </p>
             </div>
           )}
 
@@ -260,16 +309,10 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
             </div>
           ) : (
             <div className="space-y-2">
+              {cameraActive && cameraMsg && (
+                <p className="text-[11px] text-amber-300 text-center">{cameraMsg}</p>
+              )}
               <div className="flex items-center justify-center space-x-4">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Galeria ou Arquivo"
-                  className="p-3 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700"
-                >
-                  <Upload className="w-5 h-5" />
-                </button>
-
                 {cameraActive && (
                   <button
                     type="button"
@@ -293,6 +336,21 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* Câmera nativa do celular / galeria (funciona mesmo sem HTTPS) */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={processing}
+                className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center space-x-2 transition-colors disabled:opacity-60 ${
+                  cameraActive
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                }`}
+              >
+                <Upload className="w-4 h-4" />
+                <span>{processing ? 'Processando…' : 'Tirar Foto / Galeria'}</span>
+              </button>
 
               {/* Quick Simulator button */}
               <button

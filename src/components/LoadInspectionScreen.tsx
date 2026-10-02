@@ -638,15 +638,6 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
           <Camera className="w-6 h-6 text-slate-950" />
           <span>ADICIONAR / LER CÓDIGO DE BARRAS</span>
         </button>
-
-        <button
-          type="button"
-          onClick={() => handleOpenAddItem()}
-          className="px-5 py-4 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-2xl border border-slate-300 text-sm flex items-center justify-center space-x-2 shadow-sm transition-all"
-        >
-          <Plus className="w-5 h-5 text-blue-600" />
-          <span>Manual / Catálogo</span>
-        </button>
       </div>
 
       {/* Comparison: Planned SKUs vs Loaded Items */}
@@ -1088,12 +1079,16 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                           className={`text-left px-2.5 py-1.5 rounded-lg border transition-colors ${
                             selected
                               ? 'bg-amber-100 border-amber-400'
-                              : 'bg-amber-50 hover:bg-amber-100 border-amber-200'
+                              : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
                           }`}
                           title={it.descricao}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-[11px] font-mono font-black text-amber-900">{it.sku}</span>
+                            <span
+                              className={`text-[11px] font-mono font-black ${selected ? 'text-amber-900' : 'text-slate-500'}`}
+                            >
+                              {it.sku}
+                            </span>
                             <span
                               className={`text-[10px] font-black font-mono ${
                                 dif === 0 ? 'text-emerald-700' : dif > 0 ? 'text-rose-600' : 'text-amber-700'
@@ -1284,8 +1279,10 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <div className="space-y-2">
                     <div className="grid grid-cols-3 gap-2 sm:gap-3">
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                          Lastro (cx p/ camada):
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1 text-center leading-tight">
+                          Lastro
+                          <br />
+                          <span className="font-semibold text-slate-500">(cx p/ camada)</span>
                         </label>
                         <input
                           type="number"
@@ -1298,8 +1295,10 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         />
                       </div>
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                          Camadas (altura):
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1 text-center leading-tight">
+                          Camadas
+                          <br />
+                          <span className="font-semibold text-slate-500">(altura)</span>
                         </label>
                         <input
                           type="number"
@@ -1312,8 +1311,10 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         />
                       </div>
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                          Total de Pallets:
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1 text-center leading-tight">
+                          Total de
+                          <br />
+                          <span className="font-semibold text-slate-500">Pallets</span>
                         </label>
                         <input
                           type="number"

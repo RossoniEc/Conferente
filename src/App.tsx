@@ -66,8 +66,10 @@ export default function App() {
     setSoundEnabled(settings.beepSoundEnabled);
   }, [settings]);
 
+  // Avisa quando o navegador não tem mais espaço para salvar (ex.: muitas fotos)
+  const [storageFull, setStorageFull] = useState(false);
   useEffect(() => {
-    storageService.saveInspections(inspections);
+    setStorageFull(!storageService.saveInspections(inspections));
   }, [inspections]);
 
   useEffect(() => {
@@ -203,6 +205,14 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16 sm:pb-8">
+        {storageFull && (
+          <div className="max-w-5xl mx-auto px-4 pt-4">
+            <div className="bg-rose-600 text-white rounded-2xl px-4 py-3 text-xs font-bold">
+              ⚠ Armazenamento do navegador cheio: as últimas alterações (provavelmente fotos) NÃO foram salvas e
+              serão perdidas ao recarregar. Remova fotos ou leituras desnecessárias, ou conclua e exporte DTs antigas.
+            </div>
+          </div>
+        )}
         {currentTab === 'home' && (
           <HomeScreen
             onNavigate={navigateTo}
@@ -264,6 +274,7 @@ export default function App() {
               headerTag="Tópico 2 • Execução de Pátio"
               title="Conferência de Carga — Selecione a DT"
               mode="em_processo"
+              showImportButton={false}
             />
           )
         )}

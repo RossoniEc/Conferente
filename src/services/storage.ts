@@ -662,8 +662,15 @@ export const storageService = {
     }
   },
 
-  saveInspections(inspections: CargoInspection[]): void {
-    localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(inspections));
+  // Retorna false se o navegador recusar por falta de espaço (fotos ocupam a maior parte)
+  saveInspections(inspections: CargoInspection[]): boolean {
+    try {
+      localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(inspections));
+      return true;
+    } catch (err) {
+      console.error('Falha ao salvar conferências (armazenamento cheio?):', err);
+      return false;
+    }
   },
 
   getInspectionById(id: string): CargoInspection | undefined {
