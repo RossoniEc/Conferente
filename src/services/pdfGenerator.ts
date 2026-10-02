@@ -453,8 +453,29 @@ export function generateBookCarregamentoPdf(
     y += 24;
   }
 
-  // Signatures Section at bottom
-  const sigY = Math.max(y, pageHeight - 34);
+  // Signatures Section at bottom (nova página se o conteúdo já ocupou o rodapé)
+  if (y > pageHeight - 34) {
+    doc.addPage();
+  }
+  const sigY = pageHeight - 34;
+
+  // Assinaturas coletadas na finalização, desenhadas sobre as linhas (proporção preservada)
+  const drawSignature = (dataUrl: string | undefined, x: number) => {
+    if (!dataUrl) return;
+    try {
+      const props = doc.getImageProperties(dataUrl);
+      const maxW = 75;
+      const maxH = 16;
+      const scale = Math.min(maxW / props.width, maxH / props.height);
+      const w = props.width * scale;
+      const h = props.height * scale;
+      doc.addImage(dataUrl, 'PNG', x + (maxW - w) / 2, sigY + 12 - h, w, h, undefined, 'FAST');
+    } catch {
+      /* assinatura inválida: mantém só a linha */
+    }
+  };
+  drawSignature(inspection.assinaturaConferente, 15);
+  drawSignature(inspection.assinaturaMotorista, 115);
 
   doc.setDrawColor(148, 163, 184);
   doc.line(15, sigY + 12, 90, sigY + 12);

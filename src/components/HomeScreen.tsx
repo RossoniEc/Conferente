@@ -223,10 +223,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <button
               type="button"
               onClick={onResumeConference}
-              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+              className="h-11 px-5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
             >
               <span>Retomar Conferência</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <ArrowRight className="w-5 h-5" />
             </button>
           </div>
         )}

@@ -253,8 +253,8 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
       </div>
 
       {/* Main Viewport */}
-      <div className="flex-1 flex flex-col items-center justify-center p-3 overflow-hidden">
-        <div className="relative w-full max-w-md aspect-[4/3] rounded-2xl overflow-hidden bg-black border-2 border-slate-700 shadow-2xl flex items-center justify-center">
+      <div className="flex-1 flex flex-col items-center justify-center p-3 overflow-y-auto">
+        <div className="relative w-full max-w-3xl h-[58vh] sm:h-[65vh] min-h-[260px] rounded-2xl overflow-hidden bg-black border-2 border-slate-700 shadow-2xl flex items-center justify-center">
           {previewImage ? (
             <img src={previewImage} alt="Captura" className="w-full h-full object-cover" />
           ) : cameraActive ? (
@@ -287,7 +287,7 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="w-full max-w-md mt-4 space-y-3">
+        <div className="w-full max-w-md mt-3 space-y-3 shrink-0">
           {previewImage ? (
             <div className="flex space-x-3">
               <button

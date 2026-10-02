@@ -194,9 +194,10 @@ export const BarcodeCameraScanner: React.FC<BarcodeCameraScannerProps> = ({
             type="button"
             onClick={onClose}
             title="Fechar Leitor"
-            className="p-2 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 transition-colors"
+            className="h-11 pl-3 pr-4 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-sm flex items-center gap-1.5 shadow-md shadow-rose-900/40 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-6 h-6" />
+            <span>Fechar</span>
           </button>
         </div>
       </div>
@@ -298,21 +299,28 @@ export const BarcodeCameraScanner: React.FC<BarcodeCameraScannerProps> = ({
                   Ocultar
                 </button>
               </div>
-              <div className="flex space-x-2">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   value={manualCode}
-                  onChange={(e) => setManualCode(e.target.value)}
-                  placeholder={mode === 'qrcode' ? 'Cole o conteúdo do QR Code...' : 'Digite o EAN / Código de barras...'}
+                  // Código de barras (EAN) é só número: abre o teclado numérico no celular
+                  inputMode={mode === 'barcode' ? 'numeric' : 'text'}
+                  pattern={mode === 'barcode' ? '[0-9]*' : undefined}
+                  enterKeyHint="done"
+                  autoComplete="off"
+                  onChange={(e) =>
+                    setManualCode(mode === 'barcode' ? e.target.value.replace(/\D/g, '') : e.target.value)
+                  }
+                  placeholder={mode === 'qrcode' ? 'Cole o conteúdo do QR Code...' : 'Digite o EAN'}
                   autoFocus
-                  className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-sm placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                  className="flex-1 min-w-0 h-14 px-4 bg-slate-950 border-2 border-slate-700 rounded-xl text-white font-mono text-lg tracking-wider placeholder:text-slate-500 placeholder:text-sm placeholder:tracking-normal focus:outline-none focus:border-amber-400"
                 />
                 <button
                   type="submit"
                   disabled={!manualCode.trim()}
-                  className="px-4 py-2 bg-amber-500 disabled:opacity-40 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs flex items-center space-x-1"
+                  className="h-14 px-5 bg-amber-500 disabled:opacity-40 hover:bg-amber-400 active:scale-95 text-slate-950 font-black rounded-xl text-base flex items-center gap-1.5 shrink-0 transition-colors"
                 >
-                  <CheckCircle className="w-4 h-4" />
+                  <CheckCircle className="w-5 h-5" />
                   <span>Validar</span>
                 </button>
               </div>

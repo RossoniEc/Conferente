@@ -31,6 +31,7 @@ interface BillingInspectionScreenProps {
   sheetRowsFAT: SheetRowFAT[];
   onSaveSheetFAT: (rows: SheetRowFAT[]) => void;
   onUpdateInspection: (updated: CargoInspection) => void;
+  onReturnToConference: (reaberta: CargoInspection) => void;
   onNavigateHome: () => void;
   settings: AppSettings;
   user: UserSession;
@@ -42,6 +43,7 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
   sheetRowsFAT,
   onSaveSheetFAT,
   onUpdateInspection,
+  onReturnToConference,
   onNavigateHome,
   settings,
   user,
@@ -117,6 +119,7 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
   // Handle selecting a DT in Step 1
   const handleSelectDt = (insp: CargoInspection) => {
     setSelectedInspection(insp);
+    setConfirmReturn(false);
     // Find if there is already an NF-e in FAT sheet for this DT
     const existingFat = fatRowsForDt(insp.dt);
     if (existingFat.length > 0) {
@@ -124,6 +127,19 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
     } else {
       setChaveNFeInput('');
     }
+  };
+
+  // Devolve a DT para a etapa anterior (Conferência de Carga) para correções
+  const [confirmReturn, setConfirmReturn] = useState(false);
+  const handleReturnToConference = () => {
+    if (!selectedInspection) return;
+    const reaberta: CargoInspection = {
+      ...selectedInspection,
+      status: 'em_conferencia',
+      dataFim: undefined,
+    };
+    setConfirmReturn(false);
+    onReturnToConference(reaberta);
   };
 
   // Proceed to Step 2
@@ -323,9 +339,9 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
           <button
             type="button"
             onClick={() => setStep(1)}
-            className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-bold flex items-center space-x-1.5 self-start sm:self-auto"
+            className="h-11 pl-3 pr-5 rounded-xl border-2 border-slate-300 bg-white text-slate-800 hover:bg-slate-100 hover:border-slate-400 active:scale-95 text-sm font-bold flex items-center gap-1.5 self-start sm:self-auto shadow-sm transition-colors"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-5 h-5" />
             <span>Trocar de DT</span>
           </button>
         )}
@@ -452,15 +468,54 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
                 </div>
               </div>
 
-              {/* Action: "clicar em seguir conferencia de Faturamento" */}
-              <button
-                type="button"
-                onClick={handleProceedToBilling}
-                className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-[0.99] text-white font-black rounded-2xl text-sm sm:text-base flex items-center justify-center space-x-2 shadow-lg shadow-purple-600/30 transition-all"
-              >
-                <span>SEGUIR CONFERÊNCIA DE FATURAMENTO</span>
-                <ArrowRight className="w-5 h-5" />
-              </button>
+              {/* Ações: voltar à etapa anterior ou seguir para o faturamento */}
+              {confirmReturn ? (
+                <div className="bg-amber-500/10 border border-amber-500/40 rounded-2xl p-3 space-y-2">
+                  <p className="text-xs text-amber-200 font-semibold">
+                    Devolver a {/^DT/i.test(selectedInspection.dt) ? '' : 'DT '}
+                    {selectedInspection.dt} para a <strong>Conferência de Carga</strong>? Ela sai do
+                    faturamento e volta a ficar "em conferência" para correções; depois, finalize a carga novamente.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmReturn(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-600 text-slate-200 hover:bg-slate-800 text-xs font-bold"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleReturnToConference}
+                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-1.5"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Sim, voltar à Conferência de Carga
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmReturn(true)}
+                    className="sm:w-auto px-5 py-4 rounded-2xl border border-slate-600 text-slate-200 hover:bg-slate-800 font-bold text-sm flex items-center justify-center gap-1.5 transition-colors"
+                    title="Devolver a DT para a Conferência de Carga"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                    <span>Voltar à Etapa Anterior</span>
+                  </button>
+                  {/* Action: "clicar em seguir conferencia de Faturamento" */}
+                  <button
+                    type="button"
+                    onClick={handleProceedToBilling}
+                    className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-[0.99] text-white font-black rounded-2xl text-sm sm:text-base flex items-center justify-center space-x-2 shadow-lg shadow-purple-600/30 transition-all"
+                  >
+                    <span>SEGUIR CONFERÊNCIA DE FATURAMENTO</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

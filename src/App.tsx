@@ -274,7 +274,6 @@ export default function App() {
               headerTag="Tópico 2 • Execução de Pátio"
               title="Conferência de Carga — Selecione a DT"
               mode="em_processo"
-              showImportButton={false}
             />
           )
         )}
@@ -285,6 +284,11 @@ export default function App() {
             sheetRowsFAT={sheetRowsFAT}
             onSaveSheetFAT={(fat) => setSheetRowsFAT(fat)}
             onUpdateInspection={handleUpdateInspection}
+            onReturnToConference={(reaberta) => {
+              // Volta a DT para a etapa anterior e abre a conferência dela
+              setInspections((prev) => prev.map((i) => (i.id === reaberta.id ? reaberta : i)));
+              handleSelectFromList(reaberta);
+            }}
             onNavigateHome={() => setCurrentTab('home')}
             settings={settings}
             user={user}

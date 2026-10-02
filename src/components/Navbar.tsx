@@ -1,5 +1,5 @@
-import React from 'react';
-import { PackageCheck, Volume2, VolumeX, LogOut, ChevronLeft, Truck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { PackageCheck, Volume2, VolumeX, LogOut, ChevronLeft, Truck, Maximize, Minimize } from 'lucide-react';
 import { ActiveTab, CargoInspection, UserSession } from '../types';
 
 interface NavbarProps {
@@ -23,6 +23,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   soundEnabled,
   onToggleSound,
 }) => {
+  // Tela cheia via Fullscreen API; acompanha também a saída pela tecla Esc / gesto do sistema
+  const fullscreenSupported = typeof document !== 'undefined' && !!document.documentElement.requestFullscreen;
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      }
+    } catch (err) {
+      console.warn('Tela cheia indisponível:', err);
+    }
+  };
+
   const getTabTitle = (tab: ActiveTab) => {
     switch (tab) {
       case 'select_load':
@@ -51,11 +73,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('home')}
-              className="p-1.5 -ml-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 active:scale-95 flex items-center transition-colors"
+              className="h-10 pl-2 pr-3 sm:pl-2.5 sm:pr-4 -ml-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 active:scale-95 flex items-center gap-1 transition-colors"
               title="Voltar ao Menu Principal"
             >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-xs font-bold pr-1 hidden sm:inline">Menu</span>
+              <ChevronLeft className="w-6 h-6" />
+              <span className="text-sm font-bold">Menu</span>
             </button>
           ) : (
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/20">
@@ -95,6 +117,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right Side: Sound Toggle & User session */}
         <div className="flex items-center space-x-2">
+          {/* Tela cheia (some nos navegadores sem suporte, ex.: Safari do iPhone) */}
+          {fullscreenSupported && (
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Sair da tela cheia' : 'Exibir em tela cheia'}
+              className={`p-2 rounded-xl text-xs transition-colors ${
+                isFullscreen ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            </button>
+          )}
+
           {/* Sound Mute/Unmute */}
           <button
             type="button"

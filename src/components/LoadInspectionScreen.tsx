@@ -23,7 +23,8 @@ import {
   RefreshCw,
   PlusCircle,
   Eye,
-  Scissors
+  Scissors,
+  ChevronDown
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -42,7 +43,8 @@ import { EmailSentModal } from './EmailSentModal';
 import { BookSummaryModal } from './BookSummaryModal';
 import { generateBookCarregamentoPdf } from '../services/pdfGenerator';
 import { playBeep } from '../services/sound';
-import { ListaNegraAlert } from './ListaNegraAlert';
+import { ListaNegraAlert, findListaNegra } from './ListaNegraAlert';
+import { SignaturePad } from './SignaturePad';
 
 interface LoadInspectionScreenProps {
   inspection: CargoInspection;
@@ -75,6 +77,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   // Vehicle Plate & Lacre state
   const [placaInput, setPlacaInput] = useState(inspection.placa || '');
   const [lacreInput, setLacreInput] = useState(inspection.numeroLacre || '');
+  const [assinaturaConferente, setAssinaturaConferente] = useState<string | null>(inspection.assinaturaConferente || null);
+  const [assinaturaMotorista, setAssinaturaMotorista] = useState<string | null>(inspection.assinaturaMotorista || null);
 
   // Persistent Batch/Lote replication memory
   const [replicatedLote, setReplicatedLote] = useState('L-2026A');
@@ -373,6 +377,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
       ...inspection,
       placa: placaInput.trim(),
       numeroLacre: lacreInput.trim(),
+      assinaturaConferente: assinaturaConferente || undefined,
+      assinaturaMotorista: assinaturaMotorista || undefined,
       dataFim: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
       status: 'concluido',
       emailStatus: {
@@ -427,8 +433,48 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     return false;
   });
 
+  // Alertas recolhidos por padrão: o ícone pisca e o conferente expande quando quiser ler
+  const listaNegraMatches = findListaNegra(placaInput || inspection.placa, settings.listaNegra);
+  const alertCount = listaNegraMatches.length + matchingClientNotes.length;
+  const [alertsOpen, setAlertsOpen] = useState(false);
+
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4">
+      {/* Alertas (Lista Negra + instruções do cliente): ícone piscando que expande ao tocar */}
+      {alertCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setAlertsOpen(!alertsOpen)}
+          aria-expanded={alertsOpen}
+          className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 border-2 text-left transition-colors ${
+            alertsOpen
+              ? 'bg-slate-900 border-rose-500 text-white'
+              : 'bg-rose-50 border-rose-300 text-rose-900 hover:border-rose-500'
+          }`}
+        >
+          <span className="relative flex w-10 h-10 shrink-0">
+            {!alertsOpen && <span className="absolute inset-0 rounded-xl bg-rose-500 opacity-60 animate-ping" />}
+            <span className="relative w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center">
+              <AlertTriangle className={`w-5 h-5 ${alertsOpen ? '' : 'animate-pulse'}`} />
+            </span>
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-black">
+              {alertCount} {alertCount === 1 ? 'alerta' : 'alertas'} para esta carga
+            </span>
+            <span className={`block text-[11px] font-semibold ${alertsOpen ? 'text-slate-300' : 'text-rose-700'}`}>
+              {[listaNegraMatches.length > 0 && 'Lista Negra', matchingClientNotes.length > 0 && 'Instrução do cliente']
+                .filter(Boolean)
+                .join(' • ')}{' '}
+              — toque para {alertsOpen ? 'recolher' : 'ver'}
+            </span>
+          </span>
+          <ChevronDown className={`w-5 h-5 shrink-0 transition-transform ${alertsOpen ? 'rotate-180' : ''}`} />
+        </button>
+      )}
+
+      {alertsOpen && (
+        <div className="space-y-4">
       {/* Lista Negra: placa do veículo com observação de atenção redobrada */}
       <ListaNegraAlert placa={placaInput || inspection.placa} lista={settings.listaNegra} />
 
@@ -483,6 +529,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
         </div>
       )}
 
@@ -973,11 +1021,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
           Voltar ao Menu
         </button>
 
-        <div className="w-full sm:w-auto flex items-center space-x-2">
+        <div className="w-full sm:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <button
             type="button"
             onClick={() => handleOpenAddItem()}
-            className="flex-1 sm:flex-none px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-1.5"
+            className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-1.5"
           >
             <PlusCircle className="w-4 h-4 text-slate-600" />
             <span>Adicionar Mais SKUs</span>
@@ -986,9 +1034,9 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
           <button
             type="button"
             onClick={() => setShowFinishModal(true)}
-            className="flex-1 sm:flex-none px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-black rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/25 transition-all"
+            className="h-14 px-8 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-black rounded-2xl text-base sm:text-lg tracking-wide flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-600/30 transition-all"
           >
-            <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+            <CheckCircle2 className="w-6 h-6 text-emerald-200" />
             <span>FINALIZAR CARGA</span>
           </button>
         </div>
@@ -1247,17 +1295,19 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
 
               {/* CONSOLIDAÇÃO DE TOTAIS CARREGADOS */}
               <div className="border border-slate-200 rounded-2xl p-3.5 space-y-3 bg-white">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
                     Consolidar Totais Carregados
                   </span>
                   {/* Mode toggle */}
-                  <div className="flex bg-slate-100 p-0.5 rounded-lg text-xs font-bold">
+                  <div className="flex bg-slate-100 p-1 rounded-xl text-sm font-bold border border-slate-200">
                     <button
                       type="button"
                       onClick={() => setCalcMode('lastro')}
-                      className={`px-2.5 py-1 rounded-md transition-all ${
-                        calcMode === 'lastro' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500'
+                      className={`h-9 px-4 rounded-lg transition-all ${
+                        calcMode === 'lastro'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       Lastro x Camada
@@ -1265,8 +1315,10 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                     <button
                       type="button"
                       onClick={() => setCalcMode('direto')}
-                      className={`px-2.5 py-1 rounded-md transition-all ${
-                        calcMode === 'direto' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500'
+                      className={`h-9 px-4 rounded-lg transition-all ${
+                        calcMode === 'direto'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       Digitar Total
@@ -1638,6 +1690,23 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   placeholder="Ex: LAC-982410"
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-sm text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
                 />
+              </div>
+
+              {/* Assinaturas (impressas no Book PDF) */}
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-700">Assinaturas (saem no Book PDF):</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <SignaturePad
+                    label={`Conferente • ${user.name.split(' ')[0]}`}
+                    value={assinaturaConferente}
+                    onChange={setAssinaturaConferente}
+                  />
+                  <SignaturePad
+                    label={`Motorista${inspection.motorista ? ` • ${inspection.motorista.split(' ')[0]}` : ''}`}
+                    value={assinaturaMotorista}
+                    onChange={setAssinaturaMotorista}
+                  />
+                </div>
               </div>
 
               {/* Grupo de E-mails Destinatários */}

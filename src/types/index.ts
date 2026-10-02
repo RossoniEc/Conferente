@@ -103,6 +103,9 @@ export interface CargoInspection {
   fotoVeiculoInicio?: string;
   fotoVeiculoFim?: string;
   numeroLacre?: string;
+  // Assinaturas coletadas na finalização (PNG em base64), impressas no Book PDF
+  assinaturaConferente?: string;
+  assinaturaMotorista?: string;
   itensPlanejados: PlannedItem[];
   itensConferidos: CheckedItem[];
   fotosGerais: string[];

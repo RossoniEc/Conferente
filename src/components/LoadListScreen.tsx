@@ -11,11 +11,13 @@ import {
   CheckCircle2, 
   AlertTriangle,
   ReceiptText,
-  AlertCircle
+  AlertCircle,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { CargoInspection, ClientNote, PlacaListaNegra } from '../types';
 import { BookSummaryModal } from './BookSummaryModal';
-import { ListaNegraAlert } from './ListaNegraAlert';
+import { ListaNegraAlert, findListaNegra } from './ListaNegraAlert';
 
 interface LoadListScreenProps {
   inspections: CargoInspection[];
@@ -40,7 +42,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
   title = 'Lista de Carga (100% Carregadas)',
   mode = 'carregadas',
   listaNegra = [],
-  showImportButton = true,
+  showImportButton = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedInspectionForBook, setSelectedInspectionForBook] = useState<CargoInspection | null>(null);
@@ -70,6 +72,19 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
   };
 
   const filtered = listaDaEtapa.filter(matchesSearch);
+
+  // Instrução padrão do cliente que se aplica à DT (mesma regra nos dois formatos)
+  const clientNoteFor = (insp: CargoInspection) => {
+    const loadCliente = (insp.itensPlanejados[0]?.cliente || '').toUpperCase();
+    return clientNotes.find((n) => {
+      const cli = n.cliente.toUpperCase();
+      return n.ativo && ((loadCliente && (cli === loadCliente || loadCliente.includes(cli))) || insp.dt.toUpperCase().includes(cli));
+    });
+  };
+
+  // Formato de exibição: a página sempre abre em lista; "Cards" vale enquanto a página estiver aberta
+  const [viewMode, setViewMode] = useState<'cards' | 'lista'>('lista');
+  const changeViewMode = (m: 'cards' | 'lista') => setViewMode(m);
 
   const getStatusBadge = (status: CargoInspection['status']) => {
     switch (status) {
@@ -160,6 +175,29 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
           {listaDaEtapa.length} DT{listaDaEtapa.length === 1 ? '' : 's'}{' '}
           {mode === 'carregadas' ? '100% carregada' + (listaDaEtapa.length === 1 ? '' : 's') : 'em processo'}
         </span>
+
+        {/* Formato de exibição: cards ou lista */}
+        <div className="flex bg-slate-200 p-1 rounded-xl self-start sm:self-auto" role="group" aria-label="Formato de exibição">
+          {(
+            [
+              { id: 'cards', label: 'Cards', Icon: LayoutGrid },
+              { id: 'lista', label: 'Lista', Icon: List },
+            ] as const
+          ).map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => changeViewMode(id)}
+              aria-pressed={viewMode === id}
+              className={`h-9 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                viewMode === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Cards List */}
@@ -181,6 +219,78 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
           >
             Importar Carga Agora
           </button>
+        </div>
+      ) : viewMode === 'lista' ? (
+        /* Formato lista: uma DT por linha */
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm divide-y divide-slate-100 overflow-hidden">
+          {filtered.map((insp) => {
+            const totalPlan = insp.itensPlanejados.reduce((a, b) => a + b.quantidadePlanejada, 0);
+            const totalCarreg = insp.itensConferidos.reduce((a, b) => a + b.quantidadeCarregada, 0);
+            const totalCorte = insp.itensConferidos.reduce((a, b) => a + (b.corteOperacional?.quantidade || 0), 0);
+            const planLiquido = totalPlan - totalCorte;
+            const percent = planLiquido > 0 ? Math.min(100, Math.round((totalCarreg / planLiquido) * 100)) : 0;
+            const temAlerta = findListaNegra(insp.placa, listaNegra).length > 0 || !!clientNoteFor(insp);
+
+            return (
+              <div key={insp.id} className="flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-2 px-4 py-3 hover:bg-slate-50">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-black text-base text-slate-900">{insp.dt}</span>
+                    {insp.itensPlanejados[0]?.cliente && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200">
+                        {insp.itensPlanejados[0].cliente}
+                      </span>
+                    )}
+                    <span className="bg-white border-2 border-blue-600 rounded px-1.5 text-[11px] font-mono font-black text-slate-900">
+                      {insp.placa}
+                    </span>
+                    {temAlerta && (
+                      <span className="text-rose-600" title="Esta carga tem alertas (Lista Negra / cliente)">
+                        <AlertTriangle className="w-4 h-4 animate-pulse" />
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {insp.motorista || '—'} • Início {insp.dataInicio} • {insp.conferente.split(' ')[0]}
+                  </p>
+                </div>
+
+                <div className="w-full sm:w-44 shrink-0">
+                  <div className="flex justify-between text-[11px] font-bold">
+                    <span className="font-mono text-slate-700">
+                      <span className="text-emerald-700">{totalCarreg}</span> / {planLiquido}
+                    </span>
+                    <span className="text-slate-500">{percent}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-1">
+                    <div
+                      className={`h-full ${percent >= 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedInspectionForBook(insp)}
+                    title="Ver Book de Carregamento"
+                    className="h-10 w-10 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center justify-center"
+                  >
+                    <FileText className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectInspection(insp)}
+                    className="h-10 px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5"
+                  >
+                    {mode === 'carregadas' ? 'FINALIZAR' : 'CONFERIR'}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -245,13 +355,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
 
                   {/* Client standard instruction alert */}
                   {(() => {
-                    const loadCliente = insp.itensPlanejados[0]?.cliente || '';
-                    const noteMatch = clientNotes.find(
-                      (n) => n.ativo && (
-                        (loadCliente && (n.cliente.toUpperCase() === loadCliente.toUpperCase() || loadCliente.toUpperCase().includes(n.cliente.toUpperCase()))) ||
-                        insp.dt.toUpperCase().includes(n.cliente.toUpperCase())
-                      )
-                    );
+                    const noteMatch = clientNoteFor(insp);
                     if (!noteMatch) return null;
 
                     return (
