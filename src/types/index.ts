@@ -146,6 +146,8 @@ export interface SheetRowDT {
   descricao: string;
   quantidade: number;
   dataCriacao: string;
+  dataAgendamento?: string; // coluna DATA da planilha (aaaa-mm-dd)
+  tipoCarga?: string; // coluna TIPO da planilha (Batido, Paletizado, Fracionado)
   cliente?: string;
   doca?: string;
   destino?: string;

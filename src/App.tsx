@@ -231,6 +231,8 @@ export default function App() {
             onLoadSelected={handleLoadSelected}
             existingInspections={inspections}
             sheetRowsDT={sheetRowsDT}
+            sheetDtUrl={settings.googleSheetListaDTUrl}
+            onSyncSheetDT={(dt) => setSheetRowsDT(dt)}
             deParaList={settings.deParaList}
             clientNotes={settings.clientNotes}
             listaNegra={settings.listaNegra}

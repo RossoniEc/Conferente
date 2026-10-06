@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
-  QrCode, 
+  QrCode,
+  ChevronRight,
   FileText, 
   Search, 
   Camera, 
@@ -10,17 +11,24 @@ import {
   AlertCircle, 
   ArrowRight,
   Sparkles,
-  Sheet
+  Sheet,
+  CalendarDays,
+  RefreshCw,
+  X,
+  Building2
 } from 'lucide-react';
 import { CargoInspection, PlannedItem, ProductDePara, SheetRowDT, UserSession, ClientNote, PlacaListaNegra } from '../types';
 import { ListaNegraAlert } from './ListaNegraAlert';
 import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 import { playBeep } from '../services/sound';
+import { fetchSheetDT, localIsoDate } from '../services/sheetDt';
 
 interface SelectLoadScreenProps {
   onLoadSelected: (inspection: CargoInspection) => void;
   existingInspections: CargoInspection[];
   sheetRowsDT: SheetRowDT[];
+  sheetDtUrl?: string;
+  onSyncSheetDT?: (rows: SheetRowDT[]) => void;
   deParaList: ProductDePara[];
   clientNotes?: ClientNote[];
   listaNegra?: PlacaListaNegra[];
@@ -32,13 +40,15 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
   onLoadSelected,
   existingInspections,
   sheetRowsDT,
+  sheetDtUrl,
+  onSyncSheetDT,
   deParaList,
   clientNotes = [],
   listaNegra = [],
   user,
   soundEnabled,
 }) => {
-  const [activeMode, setActiveMode] = useState<'qrcode' | 'dt'>('qrcode');
+  const activeMode = 'dt' as 'qrcode' | 'dt';
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [dtQuery, setDtQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'all' | 'dt' | 'placa'>('all');
@@ -75,6 +85,110 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
   // Group unique DTs and Placas from sheet for quick chips
   const uniqueDtsInSheet = Array.from(new Set(availableSheetRows.map((r) => r.dt)));
   const uniquePlacasInSheet = Array.from(new Set(availableSheetRows.map((r) => r.placa).filter(Boolean)));
+
+  // Sincroniza a LISTA DT ao abrir a tela, a cada minuto e ao voltar para o app (a planilha é a fonte da verdade)
+  const [dtSync, setDtSync] = useState<{ status: 'idle' | 'loading' | 'ok' | 'error'; msg?: string }>({ status: 'idle' });
+  const syncing = useRef(false);
+  const syncSheetDT = async () => {
+    if (!onSyncSheetDT || !sheetDtUrl || syncing.current) return;
+    syncing.current = true;
+    setDtSync((prev) => ({ ...prev, status: 'loading' }));
+    try {
+      const rows = await fetchSheetDT(sheetDtUrl, deParaList);
+      onSyncSheetDT(rows);
+      setDtSync({ status: 'ok', msg: `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}` });
+    } catch (err) {
+      setDtSync({ status: 'error', msg: err instanceof Error ? err.message : 'Erro ao sincronizar a LISTA DT.' });
+    } finally {
+      syncing.current = false;
+    }
+  };
+  const syncRef = useRef(syncSheetDT);
+  syncRef.current = syncSheetDT;
+  useEffect(() => {
+    syncRef.current();
+    const timer = window.setInterval(() => syncRef.current(), 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  // DTs disponíveis (sem conferência), agrupadas por DT; filtro Hoje usa a coluna DATA da LISTA DT
+  const [filtroDts, setFiltroDts] = useState<'hoje' | 'todas'>('hoje');
+  const hojeIso = localIsoDate();
+  const hojeBr = hojeIso.split('-').reverse().join('/');
+  type GrupoDt = { dt: string; placa: string; cliente?: string; motorista: string; data?: string; tipos: string[]; skus: number; volume: number };
+  const dtsDisponiveis = Array.from(
+    availableSheetRows
+      .reduce((map, r) => {
+        const g = map.get(r.dt) || { dt: r.dt, placa: r.placa, cliente: r.cliente, motorista: r.motorista, data: r.dataAgendamento, tipos: [], skus: 0, volume: 0 };
+        g.skus += 1;
+        g.volume += r.quantidade;
+        if (!g.data && r.dataAgendamento) g.data = r.dataAgendamento;
+        if (r.tipoCarga && !g.tipos.includes(r.tipoCarga)) g.tipos.push(r.tipoCarga);
+        map.set(r.dt, g);
+        return map;
+      }, new Map<string, GrupoDt>())
+      .values()
+  ).sort((x, y) => {
+    // Hoje primeiro, depois por data, e as sem data por último
+    const peso = (g: GrupoDt) => (g.data === hojeIso ? '0' : g.data ? '1' + g.data : '2');
+    return peso(x).localeCompare(peso(y)) || x.dt.localeCompare(y.dt);
+  });
+  const agendadasHoje = dtsDisponiveis.filter((g) => g.data === hojeIso);
+  // Pesquisa por DT ou Placa (ignora traço/espaço); com texto, procura em todas as disponíveis
+  const [buscaLista, setBuscaLista] = useState('');
+  const termoBusca = buscaLista.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const buscando = termoBusca.length > 0;
+  const listaDts = buscando
+    ? dtsDisponiveis.filter(
+        (g) =>
+          g.dt.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(termoBusca) ||
+          g.placa.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(termoBusca)
+      )
+    : filtroDts === 'hoje'
+    ? agendadasHoje
+    : dtsDisponiveis;
+  const mostrarData = buscando || filtroDts === 'todas';
+  const jaIniciadasHoje = new Set(
+    sheetRowsDT.filter((r) => r.dataAgendamento === hojeIso && findInspection(r.dt)).map((r) => r.dt)
+  ).size;
+
+  // Fecha o card sobreposto com a tecla Esc
+  useEffect(() => {
+    if (!previewLoad) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewLoad(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewLoad]);
+
+  // Tipo de carga (coluna TIPO): cor por tipo
+  const TipoBadge: React.FC<{ tipo: string; dark?: boolean }> = ({ tipo, dark }) => {
+    const t = tipo.toLowerCase();
+    const cor = t.startsWith('palet')
+      ? dark ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-blue-50 text-blue-700 border-blue-200'
+      : t.startsWith('batid')
+      ? dark ? 'bg-violet-500/20 text-violet-300 border-violet-500/40' : 'bg-violet-50 text-violet-700 border-violet-200'
+      : t.startsWith('fracion')
+      ? dark ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-amber-50 text-amber-800 border-amber-200'
+      : dark ? 'bg-slate-700 text-slate-200 border-slate-600' : 'bg-slate-100 text-slate-700 border-slate-200';
+    return (
+      <span className={`text-[11px] font-bold rounded-md border px-1.5 py-0.5 whitespace-nowrap ${cor}`}>{tipo}</span>
+    );
+  };
+  const tiposDaDt = (dt: string) =>
+    Array.from(new Set(sheetRowsDT.filter((r) => r.dt === dt && r.tipoCarga).map((r) => r.tipoCarga as string)));
+
+  const abrirDtAgendada = (dt: string) => {
+    handleSearchDt(dt, 'dt');
+  };
 
   // QR Code structured parser
   const parseQrCodeData = (content: string) => {
@@ -351,245 +465,174 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
         </p>
       </div>
 
-      {/* Mode Selector Tabs */}
-      <div className="grid grid-cols-2 gap-3 p-1.5 bg-slate-200 rounded-2xl">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveMode('qrcode');
-            setErrorMessage(null);
-          }}
-          className={`py-3 px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all ${
-            activeMode === 'qrcode'
-              ? 'bg-white text-slate-900 shadow-md shadow-slate-300'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-          }`}
-        >
-          <QrCode className="w-4 h-4 text-blue-600" />
-          <span>1. QR CODE da Carga</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveMode('dt');
-            setErrorMessage(null);
-          }}
-          className={`py-3 px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all ${
-            activeMode === 'dt'
-              ? 'bg-white text-slate-900 shadow-md shadow-slate-300'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-          }`}
-        >
-          <Search className="w-4 h-4 text-emerald-600" />
-          <span>2. Buscar DT ou Placa</span>
-        </button>
-      </div>
-
-      {/* Option 1: QR CODE */}
-      {activeMode === 'qrcode' && (
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900">Leitura do QR CODE da Carga</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Aponte a câmera para o QR Code impresso no mapa de expedição ou no manifesto eletrônico.
-              </p>
-            </div>
-            <span className="p-2 rounded-xl bg-blue-50 text-blue-600">
-              <QrCode className="w-6 h-6" />
-            </span>
+      {/* DTs disponíveis na LISTA DT (Hoje / Todas) */}
+      <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 shadow-sm space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-extrabold text-base sm:text-lg text-slate-900 flex items-center gap-2 leading-tight">
+              <CalendarDays className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span className="truncate">
+                {buscando ? (
+                  'Resultado da Pesquisa'
+                ) : filtroDts === 'hoje' ? (
+                  <>
+                    <span className="sm:hidden">DTs de Hoje</span>
+                    <span className="hidden sm:inline">DTs Agendadas para Hoje</span>
+                  </>
+                ) : (
+                  'DTs Disponíveis'
+                )}
+              </span>
+              <span className="text-xs font-black bg-emerald-100 text-emerald-800 rounded-full px-2 py-0.5">
+                {listaDts.length}
+              </span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {filtroDts === 'hoje' ? hojeBr : ''}
+              <span className="hidden sm:inline">{filtroDts === 'hoje' ? ' • ' : ''}Planilha "LISTA DT"</span>
+              {dtSync.msg && dtSync.status !== 'error' ? ` • ${dtSync.msg}` : ''}
+              {filtroDts === 'hoje' && jaIniciadasHoje > 0 ? ` • ${jaIniciadasHoje} já iniciada(s)` : ''}
+            </p>
+            <p className="text-[11px] text-emerald-700 font-semibold mt-0.5 flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full bg-emerald-500 ${dtSync.status === 'loading' ? 'animate-ping' : ''}`} />
+              Atualização automática a cada 1 minuto
+            </p>
           </div>
-
-          <div className="pt-2">
+          {onSyncSheetDT && (
             <button
               type="button"
-              onClick={() => setShowQrScanner(true)}
-              className="w-full py-4 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-extrabold rounded-2xl text-sm sm:text-base flex items-center justify-center space-x-3 shadow-lg shadow-blue-600/25 transition-all"
+              onClick={() => syncSheetDT()}
+              disabled={dtSync.status === 'loading'}
+              className="shrink-0 h-10 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5"
             >
-              <Camera className="w-5 h-5 text-amber-300" />
-              <span>ABRIR CÂMERA PARA LER QR CODE</span>
+              <RefreshCw className={`w-4 h-4 ${dtSync.status === 'loading' ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{dtSync.status === 'loading' ? 'Atualizando…' : 'Atualizar'}</span>
             </button>
-          </div>
+          )}
+        </div>
 
-          {/* Quick Demo QR Presets */}
-          <div className="pt-3 border-t border-slate-100">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center">
-              <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-500" />
-              Ou Selecione um QR Code Pré-Configurado para Teste:
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {demoQrs
-                .filter((item) => {
-                  // Só QR Codes de DTs que ainda não iniciaram conferência
-                  let dt = '';
-                  try {
-                    dt = JSON.parse(item.value).dt || '';
-                  } catch {
-                    dt = item.value.match(/DT:([^|]+)/i)?.[1]?.trim() || '';
-                  }
-                  return !dt || !findInspection(dt);
-                })
-                .map((item) => {
-                  // Total de volumes planejados no QR (JSON ou "SKU:código:qtd,...")
-                  let totalVol = 0;
-                  try {
-                    const obj = JSON.parse(item.value);
-                    totalVol = (obj.itens || obj.items || []).reduce(
-                      (a: number, it: { quantidade?: number; qtd?: number }) => a + Number(it.quantidade || it.qtd || 0),
-                      0
-                    );
-                  } catch {
-                    const skus = item.value.match(/(?:SKU|ITENS):([^|]+)/i)?.[1] || '';
-                    totalVol = skus.split(',').reduce((a, tok) => a + Number(tok.split(':')[1] || 0), 0);
-                  }
-                  return (
-                    <button
-                      key={item.label}
-                      type="button"
-                      onClick={() => parseQrCodeData(item.value)}
-                      className="p-3 bg-slate-50 hover:bg-blue-50/80 active:bg-blue-100 border border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"
-                    >
-                      <span className="font-bold text-xs text-slate-800 block truncate">{item.label}</span>
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] text-blue-600 font-medium">Toque para carregar</span>
-                        <span className="text-[11px] font-black font-mono text-slate-900 bg-white border border-slate-200 rounded-md px-1.5 py-0.5">
-                          {totalVol} vol. planejados
-                        </span>
+        {/* Filtro Hoje / Todas */}
+        <div className={`grid grid-cols-2 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold ${buscando ? 'opacity-50' : ''}`}>
+          <button
+            type="button"
+            onClick={() => setFiltroDts('hoje')}
+            className={`h-9 rounded-lg transition-all ${
+              filtroDts === 'hoje' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Hoje ({agendadasHoje.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFiltroDts('todas')}
+            className={`h-9 rounded-lg transition-all ${
+              filtroDts === 'todas' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Todas Disponíveis ({dtsDisponiveis.length})
+          </button>
+        </div>
+
+        {/* Pesquisa por Placa ou DT */}
+        <div className="relative">
+          <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            inputMode="search"
+            value={buscaLista}
+            onChange={(e) => setBuscaLista(e.target.value)}
+            placeholder="Pesquisar por Placa ou DT"
+            className="w-full h-12 pl-11 pr-11 bg-slate-50 border border-slate-300 rounded-xl font-mono text-base text-slate-900 uppercase placeholder:normal-case placeholder:font-sans placeholder:text-sm focus:outline-none focus:border-emerald-500 focus:bg-white"
+            aria-label="Pesquisar por Placa ou DT"
+          />
+          {buscando && (
+            <button
+              type="button"
+              onClick={() => setBuscaLista('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              aria-label="Limpar pesquisa"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {dtSync.status === 'error' && (
+          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs font-semibold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            {dtSync.msg}
+          </div>
+        )}
+
+        {listaDts.length > 0 ? (
+          <div className="border border-slate-200 rounded-xl divide-y divide-slate-200 overflow-hidden">
+            {listaDts.map((g) => (
+              <button
+                key={g.dt}
+                type="button"
+                onClick={() => abrirDtAgendada(g.dt)}
+                className={`w-full px-3 sm:px-4 py-3 text-left flex items-center gap-2.5 sm:gap-3 transition-colors ${
+                  previewLoad?.dt === g.dt ? 'bg-emerald-50' : 'bg-white hover:bg-emerald-50/70 active:bg-emerald-100'
+                }`}
+              >
+                <Truck className="hidden min-[400px]:block w-5 h-5 text-emerald-600 shrink-0" />
+                <span className="flex-1 min-w-0">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-black font-mono text-base text-slate-900 whitespace-nowrap">DT {g.dt}</span>
+                    {g.tipos.map((t) => (
+                      <TipoBadge key={t} tipo={t} />
+                    ))}
+                    {mostrarData && (
+                      <span
+                        className={`text-[11px] font-bold rounded-md px-1.5 py-0.5 whitespace-nowrap ${
+                          g.data === hojeIso
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : g.data
+                            ? 'bg-slate-100 text-slate-600'
+                            : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {g.data === hojeIso ? 'Hoje' : g.data ? g.data.split('-').reverse().join('/') : 'Sem data'}
                       </span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Option 2: Documento de Transporte (DT) ou Placa */}
-      {activeMode === 'dt' && (
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900">Buscar por DT ou Placa no Google Sheets</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Digite o número da DT ou a Placa do veículo para consultar a base "LISTA DT".
-              </p>
-            </div>
-            <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
-              <Sheet className="w-6 h-6" />
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            <div className="relative">
-              <Search className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
-              <input
-                type="text"
-                value={dtQuery}
-                onChange={(e) => handleSearchDt(e.target.value)}
-                placeholder={
-                  searchMode === 'placa'
-                    ? 'Digite a Placa do caminhão (Ex: FDR-9087, BRA-2E19)...'
-                    : searchMode === 'dt'
-                    ? 'Digite o número da DT (Ex: 61008899, DT-10492)...'
-                    : 'Buscar por DT ou Placa (Ex: 61008899 ou FDR-9087)...'
-                }
-                className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 font-mono font-bold text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all uppercase"
-              />
-            </div>
-
-            {/* Mode Filters & Quick Suggestions */}
-            <div className="space-y-2.5 pt-0.5">
-              {/* Filter Tabs: Ambos / DT / Placa */}
-              <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-xl w-fit text-xs font-bold text-slate-600">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchMode('all');
-                    if (dtQuery) handleSearchDt(dtQuery, 'all');
-                  }}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    searchMode === 'all'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'hover:text-slate-900'
-                  }`}
-                >
-                  Buscar DT ou Placa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchMode('dt');
-                    if (dtQuery) handleSearchDt(dtQuery, 'dt');
-                  }}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    searchMode === 'dt'
-                      ? 'bg-white text-emerald-700 shadow-sm'
-                      : 'hover:text-slate-900'
-                  }`}
-                >
-                  Apenas DT
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchMode('placa');
-                    if (dtQuery) handleSearchDt(dtQuery, 'placa');
-                  }}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    searchMode === 'placa'
-                      ? 'bg-white text-blue-700 shadow-sm'
-                      : 'hover:text-slate-900'
-                  }`}
-                >
-                  Apenas Placa
-                </button>
-              </div>
-
-              {/* Quick Suggestions Chips: Both DTs and Placas */}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-400 mr-1 flex items-center">
-                    <FileText className="w-3.5 h-3.5 mr-1 text-emerald-600" /> DTs Disponíveis:
+                    )}
                   </span>
-                  {uniqueDtsInSheet.map((dt) => (
-                    <button
-                      key={dt}
-                      type="button"
-                      onClick={() => {
-                        setSearchMode('dt');
-                        handleSearchDt(dt, 'dt');
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-mono font-bold transition-colors"
-                    >
-                      {dt}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-400 mr-1 flex items-center">
-                    <Truck className="w-3.5 h-3.5 mr-1 text-blue-600" /> Placas Disponíveis:
+                  {g.cliente && (
+                    <span className="flex items-center gap-1 mt-0.5 text-sm font-bold text-slate-800 truncate">
+                      <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{g.cliente}</span>
+                    </span>
+                  )}
+                  <span className="block text-xs text-slate-500 truncate">
+                    {g.placa} • {g.skus} SKU{g.skus > 1 ? 's' : ''}
                   </span>
-                  {uniquePlacasInSheet.map((placa) => (
-                    <button
-                      key={placa}
-                      type="button"
-                      onClick={() => {
-                        setSearchMode('placa');
-                        handleSearchDt(placa, 'placa');
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-mono font-bold transition-colors"
-                    >
-                      {placa}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+                </span>
+                <span className="text-xs font-black font-mono text-slate-900 bg-slate-50 border border-slate-200 rounded-md px-2 py-0.5 whitespace-nowrap">
+                  {g.volume} vol.
+                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 text-xs font-bold text-emerald-700 whitespace-nowrap">
+                  Carregar <ChevronRight className="w-4 h-4" />
+                </span>
+              </button>
+            ))}
           </div>
-        </div>
-      )}
+        ) : (
+          dtSync.status !== 'loading' && (
+            <p className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500 text-center">
+              {buscando ? (
+                <>
+                  Nenhuma DT disponível com a Placa ou DT <strong>"{buscaLista}"</strong>.
+                </>
+              ) : filtroDts === 'hoje' ? (
+                <>
+                  Nenhuma DT pendente agendada para hoje. Preencha a coluna <strong>DATA</strong> da planilha com {hojeBr}.
+                </>
+              ) : (
+                'Nenhuma DT disponível na planilha "LISTA DT".'
+              )}
+            </p>
+          )
+        )}
+      </div>
 
       {/* Error message */}
       {errorMessage && (
@@ -604,8 +647,27 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
 
       {/* Parsed / Selected Load Preview Card */}
       {previewLoad && (
-        <div className="bg-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-800 space-y-4 animate-fade-in">
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPreviewLoad(null);
+          }}
+        >
+        <div
+          id="preview-carga"
+          role="dialog"
+          aria-modal="true"
+          className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-700 space-y-4"
+        >
+          <button
+            type="button"
+            onClick={() => setPreviewLoad(null)}
+            className="absolute top-3 right-3 z-10 w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
+            aria-label="Fechar"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 pr-12 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
                 <CheckCircle2 className="w-5 h-5" />
@@ -628,7 +690,13 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
           <ListaNegraAlert placa={previewLoad.placa} lista={listaNegra} />
 
           {/* Details */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="col-span-2 sm:col-span-4">
+              <span className="text-slate-400 block">Cliente:</span>
+              <span className="font-black text-base text-white">
+                {Array.from(new Set(previewLoad.items.map((i) => i.cliente).filter(Boolean))).join(' • ') || 'Não informado'}
+              </span>
+            </div>
             <div>
               <span className="text-slate-400 block">Motorista:</span>
               <span className="font-bold text-slate-200">{previewLoad.motorista || 'Severino Silva'}</span>
@@ -641,6 +709,16 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
               <span className="text-slate-400 block">Total de Itens:</span>
               <span className="font-bold text-amber-400">
                 {previewLoad.items.reduce((acc, i) => acc + i.quantidadePlanejada, 0)} volumes
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Tipo:</span>
+              <span className="flex flex-wrap gap-1">
+                {tiposDaDt(previewLoad.dt).length > 0 ? (
+                  tiposDaDt(previewLoad.dt).map((t) => <TipoBadge key={t} tipo={t} dark />)
+                ) : (
+                  <span className="font-bold text-slate-400">Não informado</span>
+                )}
               </span>
             </div>
           </div>
@@ -711,6 +789,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
             <span>INICIAR CONFERÊNCIA DE CARGA</span>
             <ArrowRight className="w-5 h-5" />
           </button>
+        </div>
         </div>
       )}
 

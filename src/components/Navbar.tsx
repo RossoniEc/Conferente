@@ -68,16 +68,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white shadow-md">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between">
         {/* Left Side: Brand or Back */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2 min-w-0">
           {currentTab !== 'home' ? (
             <button
               type="button"
               onClick={() => onNavigate('home')}
-              className="h-10 pl-2 pr-3 sm:pl-2.5 sm:pr-4 -ml-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 active:scale-95 flex items-center gap-1 transition-colors"
+              className="h-12 pl-2.5 pr-4 sm:pl-3 sm:pr-5 -ml-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 active:scale-95 flex items-center gap-1 transition-colors"
               title="Voltar ao Menu Principal"
             >
-              <ChevronLeft className="w-6 h-6" />
-              <span className="text-sm font-bold">Menu</span>
+              <ChevronLeft className="w-7 h-7" />
+              <span className="text-base sm:text-lg font-extrabold">Menu</span>
             </button>
           ) : (
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/20">
@@ -85,12 +85,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center space-x-1.5">
               <span className="font-extrabold text-sm sm:text-base tracking-tight text-white">
                 Carga<span className="text-amber-400">Check</span>
               </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono font-bold">
+              <span className="hidden sm:inline text-[10px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono font-bold">
                 WMS
               </span>
             </div>
@@ -116,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
 
         {/* Right Side: Sound Toggle & User session */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Tela cheia (some nos navegadores sem suporte, ex.: Safari do iPhone) */}
           {fullscreenSupported && (
             <button
@@ -146,8 +146,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* User Badge */}
-          <div className="flex items-center pl-1 sm:pl-2 border-l border-slate-800 space-x-2">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-sm shadow-inner">
+          <div className="flex items-center pl-1 sm:pl-2 border-l border-slate-800 gap-1.5 sm:gap-2">
+            <div className="hidden sm:flex w-8 h-8 rounded-full bg-slate-800 border border-slate-700 items-center justify-center text-sm shadow-inner">
               {user.avatar || '👷'}
             </div>
             <div className="hidden sm:block text-left">

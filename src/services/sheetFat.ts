@@ -14,6 +14,57 @@ export const getGoogleSheetCsvUrl = (url: string): string => {
   return trimmed;
 };
 
+// Divide uma linha CSV respeitando campos entre aspas ("1.234,00" etc.)
+export const splitCsvLine = (line: string, sep: string): string[] => {
+  const out: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let c = 0; c < line.length; c++) {
+    const ch = line[c];
+    if (ch === '"') {
+      if (inQuotes && line[c + 1] === '"') {
+        cur += '"';
+        c++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === sep && !inQuotes) {
+      out.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur.trim());
+  return out;
+};
+
+// Baixa o CSV de uma planilha publicada no Google Sheets. Lança erro com mensagem amigável.
+export const fetchSheetCsv = async (url: string | undefined, nome: string): Promise<string> => {
+  const inputUrl = url?.trim();
+  if (!inputUrl || !inputUrl.startsWith('http') || inputUrl.includes('-DEMO')) {
+    throw new Error(`Informe a URL da planilha ${nome} publicada no Google Sheets (Arquivo > Compartilhar > Publicar na Web).`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(getGoogleSheetCsvUrl(inputUrl), {
+      headers: { Accept: 'text/csv,text/plain;q=0.9' },
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error('Erro ao conectar no Google Sheets. Verifique a conexão ou se a planilha está publicada na Web.');
+  }
+  if (!response.ok) {
+    throw new Error(`Planilha ${nome} indisponível (HTTP ${response.status}). Verifique se ela está publicada na Web.`);
+  }
+  const text = await response.text();
+  if (/^\s*<!DOCTYPE html/i.test(text)) {
+    throw new Error(`A planilha ${nome} não está publicada na Web (o Google pediu login). Publique-a e cole o link aqui.`);
+  }
+  return text;
+};
+
 // Converte o CSV da planilha "FAT" em linhas de faturamento
 export const parseCsvToSheetFAT = (csvText: string): SheetRowFAT[] => {
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -21,31 +72,7 @@ export const parseCsvToSheetFAT = (csvText: string): SheetRowFAT[] => {
 
   const first = lines[0];
   const sep = first.includes(';') ? ';' : first.includes('\t') ? '\t' : ',';
-
-  // Split respecting quoted fields ("1.234,00" etc.)
-  const splitLine = (line: string): string[] => {
-    const out: string[] = [];
-    let cur = '';
-    let inQuotes = false;
-    for (let c = 0; c < line.length; c++) {
-      const ch = line[c];
-      if (ch === '"') {
-        if (inQuotes && line[c + 1] === '"') {
-          cur += '"';
-          c++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (ch === sep && !inQuotes) {
-        out.push(cur.trim());
-        cur = '';
-      } else {
-        cur += ch;
-      }
-    }
-    out.push(cur.trim());
-    return out;
-  };
+  const splitLine = (line: string) => splitCsvLine(line, sep);
 
   const header = splitLine(first).map((c) => c.toLowerCase());
 
@@ -103,25 +130,7 @@ export const parseCsvToSheetFAT = (csvText: string): SheetRowFAT[] => {
 
 // Baixa e converte a planilha "FAT" publicada. Lança erro com mensagem amigável.
 export const fetchSheetFAT = async (url: string | undefined): Promise<SheetRowFAT[]> => {
-  const inputUrl = url?.trim();
-  if (!inputUrl || !inputUrl.startsWith('http')) {
-    throw new Error('Informe a URL da planilha FAT publicada no Google Sheets.');
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(getGoogleSheetCsvUrl(inputUrl), {
-      headers: { Accept: 'text/csv,text/plain;q=0.9' },
-      cache: 'no-store',
-    });
-  } catch {
-    throw new Error('Erro ao conectar no Google Sheets. Verifique a conexão.');
-  }
-  if (!response.ok) {
-    throw new Error(`Planilha indisponível (HTTP ${response.status}). Verifique se ela está publicada na Web.`);
-  }
-
-  const parsed = parseCsvToSheetFAT(await response.text());
+  const parsed = parseCsvToSheetFAT(await fetchSheetCsv(url, 'FAT'));
   if (parsed.length === 0) {
     throw new Error('Nenhuma linha válida encontrada. Confira as colunas NOTA FISCAL, DT, SKU e QUANTIDADE.');
   }

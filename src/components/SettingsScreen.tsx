@@ -29,8 +29,8 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { AppSettings, ProductDePara, SheetRowDT, SheetRowFAT, ClientNote } from '../types';
-import { INITIAL_SHEET_DT } from '../services/storage';
-import { fetchSheetFAT, getGoogleSheetCsvUrl, parseCsvToSheetFAT } from '../services/sheetFat';
+import { fetchSheetFAT, parseCsvToSheetFAT } from '../services/sheetFat';
+import { fetchSheetDT, parseCsvToSheetDT } from '../services/sheetDt';
 import { playBeep } from '../services/sound';
 
 interface SettingsScreenProps {
@@ -111,79 +111,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Cloud sync state
   const [isSyncingDT, setIsSyncingDT] = useState(false);
   const [syncSuccessDT, setSyncSuccessDT] = useState<string | null>(null);
+  const [syncErrorDT, setSyncErrorDT] = useState(false);
   const [isSyncingFAT, setIsSyncingFAT] = useState(false);
   const [syncSuccessFAT, setSyncSuccessFAT] = useState<string | null>(null);
   const [syncErrorFAT, setSyncErrorFAT] = useState(false);
-
-  // Helper to parse CSV text into SheetRowDT
-  const parseCsvToSheetDT = (csvText: string): SheetRowDT[] => {
-    const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length === 0) return [];
-
-    const first = lines[0];
-    const sep = first.includes(';') ? ';' : first.includes('\t') ? '\t' : ',';
-    const header = first.split(sep).map((c) => c.trim().toLowerCase().replace(/["']/g, ''));
-
-    // "Código do Cliente" vem primeiro para não ser confundido com a coluna de SKU (código) nem de cliente
-    const codCliIdx = header.findIndex((h) => (h.includes('cod') || h.includes('códig')) && h.includes('client'));
-    const idx = (test: (h: string) => boolean) => header.findIndex((h, i) => i !== codCliIdx && test(h));
-
-    let dtIdx = idx((h) => h.includes('dt') || h.includes('doc') || h.includes('transporte'));
-    let skuIdx = idx((h) => h.includes('sku') || h.includes('item') || h.includes('código') || h.includes('cod'));
-    let qtdIdx = header.findIndex((h) => h.includes('qtd') || h.includes('quant') || h.includes('volume') || h.includes('planej'));
-    let placaIdx = header.findIndex((h) => h.includes('placa') || h.includes('veic') || h.includes('carro'));
-    let motIdx = header.findIndex((h) => h.includes('motor') || h.includes('condutor'));
-    let transpIdx = header.findIndex((h) => h.includes('transp') || h.includes('empresa'));
-    let descIdx = header.findIndex((h) => h.includes('desc') || h.includes('prod') || h.includes('nome'));
-    const cliIdx = idx((h) => h.includes('client') || h.includes('destinat') || h.includes('loja'));
-
-    const hasHeader = dtIdx >= 0 || skuIdx >= 0 || qtdIdx >= 0;
-    const startRow = hasHeader ? 1 : 0;
-    if (dtIdx < 0) dtIdx = 0;
-    if (placaIdx < 0) placaIdx = 1;
-    if (skuIdx < 0) skuIdx = 2;
-    if (qtdIdx < 0) qtdIdx = 3;
-
-    const parsedRows: SheetRowDT[] = [];
-
-    for (let i = startRow; i < lines.length; i++) {
-      const cols = lines[i].split(sep).map((c) => c.trim().replace(/^["']|["']$/g, ''));
-      if (cols.length < 2) continue;
-
-      const dt = cols[dtIdx] || `DT-${i}`;
-      const sku = cols[skuIdx] || '';
-      if (!sku) continue;
-
-      const rawQtd = cols[qtdIdx]?.replace(/[^\d.,]/g, '').replace(',', '.') || '0';
-      const quantidade = Math.round(parseFloat(rawQtd)) || 0;
-      const placa = cols[placaIdx] || 'FDR-9087';
-      const motorista = motIdx >= 0 && cols[motIdx] ? cols[motIdx] : 'Severino Silva';
-      const transportadora = transpIdx >= 0 && cols[transpIdx] ? cols[transpIdx] : 'TransLog Brasil S/A';
-      const descricao = descIdx >= 0 && cols[descIdx] ? cols[descIdx] : `Produto ${sku}`;
-      const cliente = cliIdx >= 0 && cols[cliIdx] ? cols[cliIdx] : cols.find((c) => c.toUpperCase().includes('BRAMIL')) ? 'BRAMIL' : undefined;
-      // Código do Cliente: coluna da planilha ou, na falta dela, o cadastrado no De/Para para o SKU
-      const codigoCliente =
-        (codCliIdx >= 0 && cols[codCliIdx]) ||
-        currentSettings.deParaList.find((p) => p.sku.toUpperCase() === sku.toUpperCase())?.codigoCliente ||
-        undefined;
-
-      parsedRows.push({
-        id: `csv-dt-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
-        dt: dt.toUpperCase(),
-        placa: placa.toUpperCase(),
-        motorista,
-        transportadora,
-        sku: sku.toUpperCase(),
-        codigoCliente: codigoCliente ? codigoCliente.toUpperCase() : undefined,
-        descricao,
-        quantidade,
-        cliente,
-        dataCriacao: new Date().toISOString().split('T')[0],
-      });
-    }
-
-    return parsedRows;
-  };
 
   // Enhanced Synchronize Cloud DT Handler
   const handleSyncCloudDT = async () => {
@@ -192,59 +123,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     playBeep('scan', currentSettings.beepSoundEnabled);
 
     try {
-      let importedFromUrl = false;
-      const inputUrl = currentSettings.googleSheetListaDTUrl;
-
-      // If user provided a URL, attempt live CSV fetch
-      if (inputUrl && inputUrl.startsWith('http')) {
-        try {
-          const exportUrl = getGoogleSheetCsvUrl(inputUrl);
-          const response = await fetch(exportUrl, {
-            headers: { Accept: 'text/csv,text/plain;q=0.9' },
-          });
-
-          if (response.ok) {
-            const csvText = await response.text();
-            if (csvText && csvText.length > 20) {
-              const parsed = parseCsvToSheetDT(csvText);
-              if (parsed.length > 0) {
-                // Merge with existing ensuring no duplicates
-                const merged = [...parsed];
-                INITIAL_SHEET_DT.forEach((initRow) => {
-                  if (!merged.some((r) => r.dt === initRow.dt && r.sku === initRow.sku)) {
-                    merged.push(initRow);
-                  }
-                });
-                onSaveSheetDT(merged);
-                playBeep('success', currentSettings.beepSoundEnabled);
-                setSyncSuccessDT(`Sincronizado na Nuvem via Google Sheets! ${merged.length} registros atualizados em tempo real (${new Date().toLocaleTimeString('pt-BR')})`);
-                importedFromUrl = true;
-              }
-            }
-          }
-        } catch {
-          // If CORS or offline, fallback to standard synchronization
-        }
-      }
-
-      if (!importedFromUrl) {
-        // Fallback or demo synchronization: Merge all rows from Google Sheets definition (DT 61008899 BRAMIL)
-        await new Promise((r) => setTimeout(r, 600));
-        const merged = [...sheetRowsDT];
-        INITIAL_SHEET_DT.forEach((initRow) => {
-          const idx = merged.findIndex((r) => r.dt === initRow.dt && r.sku === initRow.sku);
-          if (idx >= 0) {
-            merged[idx] = { ...merged[idx], ...initRow };
-          } else {
-            merged.unshift(initRow);
-          }
-        });
-        onSaveSheetDT(merged);
-        playBeep('success', currentSettings.beepSoundEnabled);
-        setSyncSuccessDT(`Sincronização na Nuvem concluída com sucesso! ${merged.length} registros da planilha "LISTA DT" ativos (DT 61008899 BRAMIL sincronizada às ${new Date().toLocaleTimeString('pt-BR')})`);
-      }
-    } catch {
-      setSyncSuccessDT('Erro ao conectar na nuvem. Verifique a conexão ou use "Importar CSV".');
+      const parsed = await fetchSheetDT(currentSettings.googleSheetListaDTUrl, currentSettings.deParaList);
+      // A planilha é a fonte da verdade: substitui a base LISTA DT local
+      onSaveSheetDT(parsed);
+      playBeep('success', currentSettings.beepSoundEnabled);
+      setSyncErrorDT(false);
+      const dts = new Set(parsed.map((r) => r.dt)).size;
+      setSyncSuccessDT(
+        `LISTA DT sincronizada com o Google Sheets! ${parsed.length} linhas de ${dts} DT(s) às ${new Date().toLocaleTimeString('pt-BR')}`
+      );
+    } catch (err) {
+      setSyncErrorDT(true);
+      setSyncSuccessDT(err instanceof Error ? err.message : 'Erro ao conectar no Google Sheets. Verifique a conexão.');
       playBeep('error', currentSettings.beepSoundEnabled);
     } finally {
       setIsSyncingDT(false);
@@ -261,23 +151,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       const content = event.target?.result as string;
       if (!content) return;
 
-      const parsed = parseCsvToSheetDT(content);
+      const parsed = parseCsvToSheetDT(content, currentSettings.deParaList);
       if (parsed.length === 0) {
         alert('Não foi possível identificar linhas válidas no arquivo CSV.');
         return;
       }
 
-      // Merge new rows
-      const merged = [...parsed];
-      INITIAL_SHEET_DT.forEach((initRow) => {
-        if (!merged.some((r) => r.dt === initRow.dt && r.sku === initRow.sku)) {
-          merged.push(initRow);
-        }
-      });
-
-      onSaveSheetDT(merged);
+      onSaveSheetDT(parsed);
       playBeep('success', currentSettings.beepSoundEnabled);
-      setSyncSuccessDT(`Arquivo "${file.name}" importado com sucesso! ${parsed.length} linhas adicionadas.`);
+      setSyncErrorDT(false);
+      setSyncSuccessDT(`Arquivo "${file.name}" importado com sucesso! ${parsed.length} linhas carregadas.`);
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -1036,8 +919,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               />
             </div>
             {syncSuccessDT && (
-              <div className="mt-2 p-2.5 rounded-xl bg-emerald-100/80 border border-emerald-300 text-emerald-900 text-xs flex items-center space-x-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0" />
+              <div
+                className={`mt-2 p-2.5 rounded-xl border text-xs flex items-center space-x-2 animate-fade-in ${
+                  syncErrorDT
+                    ? 'bg-rose-50 border-rose-300 text-rose-900'
+                    : 'bg-emerald-100/80 border-emerald-300 text-emerald-900'
+                }`}
+              >
+                {syncErrorDT ? (
+                  <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0" />
+                )}
                 <span className="font-semibold">{syncSuccessDT}</span>
               </div>
             )}
@@ -1056,6 +949,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <th className="px-3 py-2">Código do Cliente</th>
                   <th className="px-3 py-2">Descrição</th>
                   <th className="px-3 py-2 text-right">Qtd Plan.</th>
+                  <th className="px-3 py-2">Data</th>
                   <th className="px-2 py-2 text-right">Ação</th>
                 </tr>
               </thead>
@@ -1078,6 +972,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     <td className="px-3 py-2 font-mono text-slate-700">{r.codigoCliente || '—'}</td>
                     <td className="px-3 py-2 text-slate-700 truncate max-w-xs">{r.descricao}</td>
                     <td className="px-3 py-2 text-right font-black text-slate-900 font-mono">{r.quantidade}</td>
+                    <td className="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">{r.dataAgendamento ? r.dataAgendamento.split('-').reverse().join('/') : '—'}</td>
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"

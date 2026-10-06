@@ -78,7 +78,6 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   const [placaInput, setPlacaInput] = useState(inspection.placa || '');
   const [lacreInput, setLacreInput] = useState(inspection.numeroLacre || '');
   const [assinaturaConferente, setAssinaturaConferente] = useState<string | null>(inspection.assinaturaConferente || null);
-  const [assinaturaMotorista, setAssinaturaMotorista] = useState<string | null>(inspection.assinaturaMotorista || null);
 
   // Persistent Batch/Lote replication memory
   const [replicatedLote, setReplicatedLote] = useState('L-2026A');
@@ -378,7 +377,6 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
       placa: placaInput.trim(),
       numeroLacre: lacreInput.trim(),
       assinaturaConferente: assinaturaConferente || undefined,
-      assinaturaMotorista: assinaturaMotorista || undefined,
       dataFim: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
       status: 'concluido',
       emailStatus: {
@@ -634,9 +632,9 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCameraCapture('initial_truck')}
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center space-x-1 shadow-sm transition-all"
+                  className="h-12 px-5 shrink-0 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-extrabold rounded-xl text-base flex items-center gap-2 shadow-md transition-all"
                 >
-                  <Camera className="w-3.5 h-3.5" />
+                  <Camera className="w-5 h-5" />
                   <span>Fotografar</span>
                 </button>
               )}
@@ -681,10 +679,10 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             handleOpenAddItem();
             setShowBarcodeCamera(true);
           }}
-          className="flex-1 py-4 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 active:scale-[0.99] text-slate-950 font-black rounded-2xl text-base sm:text-lg flex items-center justify-center space-x-3 shadow-xl shadow-amber-500/25 transition-all"
+          className="flex-1 min-w-0 px-3 py-4 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 active:scale-[0.99] text-slate-950 font-black rounded-2xl text-sm min-[400px]:text-base sm:text-lg flex items-center justify-center gap-2 sm:gap-3 shadow-xl shadow-amber-500/25 transition-all"
         >
-          <Camera className="w-6 h-6 text-slate-950" />
-          <span>ADICIONAR / LER CÓDIGO DE BARRAS</span>
+          <Camera className="w-6 h-6 text-slate-950 shrink-0" />
+          <span className="text-center leading-tight">ADICIONAR / LER CÓDIGO DE BARRAS</span>
         </button>
       </div>
 
@@ -1047,7 +1045,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
       {/* ============================================================ */}
       {showItemScannerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-xl bg-white rounded-3xl shadow-2xl flex flex-col border border-slate-200 max-h-[92vh] overflow-hidden">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl flex flex-col border border-slate-200 max-h-[92vh] overflow-hidden">
             {/* Modal Header */}
             <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
               <div className="flex items-center space-x-2.5">
@@ -1055,8 +1053,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <ScanLine className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base text-white">Leitura de Código & SKU</h3>
-                  <p className="text-[11px] text-slate-300">Conferência física e consolidação de quantidades</p>
+                  <h3 className="font-extrabold text-base sm:text-lg text-white">Leitura de Código & SKU</h3>
+                  <p className="text-sm text-slate-300">Conferência física e consolidação de quantidades</p>
                 </div>
               </div>
               <button
@@ -1073,14 +1071,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               {/* EAN / Barcode Input with Camera Trigger */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 flex items-center">
+                  <label className="text-sm font-bold text-slate-700 flex items-center">
                     <Tag className="w-3.5 h-3.5 mr-1 text-blue-600" />
                     Código de Barras (EAN do Produto):
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowBarcodeCamera(true)}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1"
+                    className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1"
                   >
                     <Camera className="w-3.5 h-3.5" />
                     <span>Abrir Câmera</span>
@@ -1097,12 +1095,12 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                     }}
                     onBlur={() => handleLookupEan(currentEan)}
                     placeholder="Bipe ou digite o EAN (Ex: 7891000100101)"
-                    className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm text-slate-900 focus:outline-none focus:border-amber-500"
+                    className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono text-base text-slate-900 focus:outline-none focus:border-amber-500"
                   />
                   <button
                     type="button"
                     onClick={() => setShowBarcodeCamera(true)}
-                    className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center space-x-1"
+                    className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-sm flex items-center space-x-1"
                   >
                     <Camera className="w-4 h-4" />
                     <span className="hidden sm:inline">Escanear</span>
@@ -1112,7 +1110,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 {/* Quick Catalog Chips */}
                 {/* Resumo por SKU: planejado x carregado x diferença (toque para selecionar) */}
                 <div className="pt-1 space-y-1">
-                  <span className="text-[10px] text-slate-400 font-bold">Itens desta Carga:</span>
+                  <span className="text-xs text-slate-400 font-bold">Itens desta Carga:</span>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                     {inspection.itensPlanejados.map((it) => {
                       const dp = settings.deParaList.find((x) => x.sku === it.sku);
@@ -1133,19 +1131,19 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span
-                              className={`text-[11px] font-mono font-black ${selected ? 'text-amber-900' : 'text-slate-500'}`}
+                              className={`text-lg font-mono font-black ${selected ? 'text-amber-900' : 'text-slate-500'}`}
                             >
                               {it.sku}
                             </span>
                             <span
-                              className={`text-[10px] font-black font-mono ${
+                              className={`text-sm font-black font-mono ${
                                 dif === 0 ? 'text-emerald-700' : dif > 0 ? 'text-rose-600' : 'text-amber-700'
                               }`}
                             >
                               {dif === 0 ? 'OK' : dif > 0 ? `+${dif}` : dif}
                             </span>
                           </div>
-                          <div className="text-[10px] font-mono text-slate-600">
+                          <div className="text-xs font-mono text-slate-600">
                             Carreg. <strong className="text-slate-900">{tot.carregado}</strong> / Plan. {tot.esperado}
                             {tot.corte > 0 && <span className="text-orange-700"> (−{tot.corte} corte)</span>}
                           </div>
@@ -1160,26 +1158,26 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               {matchedSku ? (
                 <div className="bg-amber-500/10 border-2 border-amber-400/60 rounded-2xl p-3.5 space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-700">
                       De/Para Reconhecido
                     </span>
-                    <span className="text-[11px] font-mono font-bold text-slate-600">
+                    <span className="text-sm font-mono font-bold text-slate-600">
                       {matchedSku.embalagem || 'Unidade Padrão'}
                     </span>
                   </div>
                   {/* SKU em destaque (negrito) com descrição do produto */}
-                  <h4 className="text-xl font-black font-mono text-slate-950 tracking-tight">
+                  <h4 className="text-2xl font-black font-mono text-slate-950 tracking-tight">
                     {matchedSku.sku}
                   </h4>
-                  <p className="text-xs font-semibold text-slate-700">{matchedSku.descricao}</p>
+                  <p className="text-sm font-semibold text-slate-700">{matchedSku.descricao}</p>
                 </div>
               ) : eanNotFound ? (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-xs text-rose-800 text-center">
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-sm text-rose-800 text-center">
                   <strong>EAN {currentEan} não cadastrado</strong> na tabela De/Para. Confira o código ou cadastre o
                   produto em Configuração.
                 </div>
               ) : (
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 text-center">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500 text-center">
                   Bipe o código de barras para carregar a SKU e a descrição do produto.
                 </div>
               )}
@@ -1187,20 +1185,20 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               {/* LOTE Input with "Colar e replicar para próxima leitura" */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700">
+                  <label className="text-sm font-bold text-slate-700">
                     Número do Lote do Produto:
                   </label>
                   {/* Option to replicate lote */}
                   <button
                     type="button"
                     onClick={() => setAutoReplicateLote(!autoReplicateLote)}
-                    className={`text-xs font-bold flex items-center space-x-1 px-2 py-0.5 rounded-lg transition-colors ${
+                    className={`text-base font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
                       autoReplicateLote
                         ? 'bg-amber-100 text-amber-800 border border-amber-300'
                         : 'bg-slate-200 text-slate-600'
                     }`}
                   >
-                    {autoReplicateLote ? <Lock className="w-3 h-3 text-amber-600" /> : <Unlock className="w-3 h-3 text-slate-400" />}
+                    {autoReplicateLote ? <Lock className="w-4 h-4 text-amber-600" /> : <Unlock className="w-4 h-4 text-slate-400" />}
                     <span>Replicar p/ Próxima Leitura</span>
                   </button>
                 </div>
@@ -1211,7 +1209,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                     value={currentLote}
                     onChange={(e) => setCurrentLote(e.target.value.toUpperCase())}
                     placeholder="Digite o Lote (Ex: L-2609A)"
-                    className="flex-1 px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-sm text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
+                    className="flex-1 px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-base text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
                   />
                   {isMultiLote && (
                     <input
@@ -1221,7 +1219,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                       placeholder="Qtd"
                       value={currentLoteQtd || ''}
                       onChange={(e) => setCurrentLoteQtd(Number(e.target.value))}
-                      className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center font-black text-sm text-slate-900 focus:outline-none focus:border-amber-500"
+                      className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center font-black text-base text-slate-900 focus:outline-none focus:border-amber-500"
                       aria-label="Quantidade do lote"
                     />
                   )}
@@ -1229,7 +1227,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                     <button
                       type="button"
                       onClick={() => setCurrentLote(replicatedLote)}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs"
+                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-sm"
                       title="Colar Lote Anterior"
                     >
                       Colar ({replicatedLote})
@@ -1245,7 +1243,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                       value={l.lote}
                       onChange={(e) => updateExtraLote(idx, { lote: e.target.value.toUpperCase() })}
                       placeholder={`Lote ${idx + 2}`}
-                      className="flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-sm text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
+                      className="flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-base text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
                     />
                     <input
                       type="number"
@@ -1254,7 +1252,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                       placeholder="Qtd"
                       value={l.quantidade || ''}
                       onChange={(e) => updateExtraLote(idx, { quantidade: Number(e.target.value) })}
-                      className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center font-black text-sm text-slate-900 focus:outline-none focus:border-amber-500"
+                      className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center font-black text-base text-slate-900 focus:outline-none focus:border-amber-500"
                       aria-label={`Quantidade do lote ${idx + 2}`}
                     />
                     <button
@@ -1276,14 +1274,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setExtraLotes([...extraLotes, { lote: '', quantidade: 0 }])}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"
+                    className="inline-flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Adicionar outro lote
                   </button>
                   {isMultiLote && (
                     <span
-                      className={`text-[11px] font-bold font-mono ${
+                      className={`text-sm font-bold font-mono ${
                         lotesSomados === leituraQty && leituraQty > 0 ? 'text-emerald-700' : 'text-amber-700'
                       }`}
                     >
@@ -1296,11 +1294,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               {/* CONSOLIDAÇÃO DE TOTAIS CARREGADOS */}
               <div className="border border-slate-200 rounded-2xl p-3.5 space-y-3 bg-white">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                  <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                  <span className="text-sm font-black uppercase tracking-wider text-slate-700">
                     Consolidar Totais Carregados
                   </span>
                   {/* Mode toggle */}
-                  <div className="flex bg-slate-100 p-1 rounded-xl text-sm font-bold border border-slate-200">
+                  <div className="flex bg-slate-100 p-1 rounded-xl text-base font-bold border border-slate-200">
                     <button
                       type="button"
                       onClick={() => setCalcMode('lastro')}
@@ -1331,7 +1329,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <div className="space-y-2">
                     <div className="grid grid-cols-3 gap-2 sm:gap-3">
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1 text-center leading-tight">
+                        <label className="text-sm font-bold text-slate-600 block mb-1 text-center leading-tight">
                           Lastro
                           <br />
                           <span className="font-semibold text-slate-500">(cx p/ camada)</span>
@@ -1343,11 +1341,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                           placeholder="—"
                           value={lastro || ''}
                           onChange={(e) => setLastro(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-base text-slate-900 focus:outline-none focus:border-amber-500"
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-lg text-slate-900 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1 text-center leading-tight">
+                        <label className="text-sm font-bold text-slate-600 block mb-1 text-center leading-tight">
                           Camadas
                           <br />
                           <span className="font-semibold text-slate-500">(altura)</span>
@@ -1359,11 +1357,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                           placeholder="—"
                           value={camada || ''}
                           onChange={(e) => setCamada(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-base text-slate-900 focus:outline-none focus:border-amber-500"
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-lg text-slate-900 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1 text-center leading-tight">
+                        <label className="text-sm font-bold text-slate-600 block mb-1 text-center leading-tight">
                           Total de
                           <br />
                           <span className="font-semibold text-slate-500">Pallets</span>
@@ -1375,30 +1373,30 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                           placeholder="—"
                           value={pallets || ''}
                           onChange={(e) => setPallets(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-base text-slate-900 focus:outline-none focus:border-amber-500"
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-lg text-slate-900 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                     </div>
 
                     {/* Exibir a multiplicação conforme solicitado no prompt */}
                     <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
-                      <div className="flex items-center space-x-2 text-xs text-emerald-800">
+                      <div className="flex items-center space-x-2 text-sm text-emerald-800">
                         <Calculator className="w-4 h-4 text-emerald-600" />
                         <span>Multiplicação Instantânea:</span>
                       </div>
                       <div className="text-right">
-                        <span className="text-xs text-slate-500 font-mono">
+                        <span className="text-sm text-slate-500 font-mono">
                           {lastro || '—'} x {camada || '—'} x {pallets || '—'}
                           {quadrinhosQty > 0 ? ` = ${palletQty} + ${quadrinhosQty} quadrinhos` : ''} ={' '}
                         </span>
-                        <span className="text-xl font-black text-emerald-700 font-mono">{leituraQty} volumes</span>
+                        <span className="text-2xl font-black text-emerald-700 font-mono">{leituraQty} volumes</span>
                       </div>
                     </div>
                   </div>
                 ) : (
                   /* Opção Digitar Total Direto */
                   <div className="space-y-2">
-                    <label className="text-[11px] font-bold text-slate-600 block">
+                    <label className="text-sm font-bold text-slate-600 block">
                       Total de Volumes Físicos:
                     </label>
                     <input
@@ -1412,7 +1410,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         setTotalDireto(v);
                         setAccumulatorHistory([v]);
                       }}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-xl text-slate-900 focus:outline-none focus:border-amber-500"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-center font-black text-2xl text-slate-900 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 )}
@@ -1420,13 +1418,13 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 {/* Vários quadrinhos para sistema vai acumulando os totais digitados */}
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase">
+                    <span className="text-sm font-bold text-slate-500 uppercase">
                       Quadrinhos Acumuladores (+ Somar Volumes):
                     </span>                    {accumulatorHistory.length > 0 && (
                       <button
                         type="button"
                         onClick={handleRemoveLastAccumulator}
-                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700"
+                        className="text-sm font-bold text-rose-600 hover:text-rose-700"
                       >
                         Desfazer Último
                       </button>
@@ -1439,7 +1437,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         key={qty}
                         type="button"
                         onClick={() => handleAddAccumulator(qty)}
-                        className="py-2 bg-slate-100 hover:bg-amber-100 active:scale-95 border border-slate-200 hover:border-amber-400 rounded-xl font-black text-xs text-slate-800 transition-all"
+                        className="py-2 bg-slate-100 hover:bg-amber-100 active:scale-95 border border-slate-200 hover:border-amber-400 rounded-xl font-black text-sm text-slate-800 transition-all"
                       >
                         +{qty}
                       </button>
@@ -1448,12 +1446,12 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
 
                   {/* Visual chips of accumulated chunks */}
                   {accumulatorHistory.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1 bg-slate-50 p-2 rounded-xl border border-slate-200 text-xs">
-                      <span className="text-[10px] text-slate-400 font-bold mr-1">Blocos:</span>
+                    <div className="flex flex-wrap items-center gap-1 bg-slate-50 p-2 rounded-xl border border-slate-200 text-sm">
+                      <span className="text-xs text-slate-400 font-bold mr-1">Blocos:</span>
                       {accumulatorHistory.map((v, i) => (
                         <span
                           key={i}
-                          className="px-2 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 text-xs"
+                          className="px-2 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 text-sm"
                         >
                           +{v}
                         </span>
@@ -1469,14 +1467,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               {/* Fotografar a Carga / Pallet */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 flex items-center">
+                  <label className="text-sm font-bold text-slate-700 flex items-center">
                     <Camera className="w-3.5 h-3.5 mr-1 text-amber-500" />
                     Fotografar Carga / Pallet do SKU:
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowCameraCapture('cargo_pallet')}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1"
+                    className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Nova Foto</span>
@@ -1507,7 +1505,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowCameraCapture('cargo_pallet')}
-                    className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-600 flex items-center justify-center space-x-2 transition-colors"
+                    className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-sm font-bold text-slate-600 flex items-center justify-center space-x-2 transition-colors"
                   >
                     <Camera className="w-4 h-4 text-amber-500" />
                     <span>Clique para Registrar Foto do Pallet</span>
@@ -1527,7 +1525,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 return (
                   <div className="mx-4 mb-3 p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-rose-900">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <p className="text-xs">
+                    <p className="text-sm">
                       {t.planejado === 0 ? (
                         <>
                           <strong>SKU {matchedSku.sku} não consta no planejamento</strong> desta carga.
@@ -1547,7 +1545,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
 
             {/* O que falta para liberar o registro */}
             {!canSaveItem && (
-              <p className="mx-4 mb-2 text-center text-[11px] font-bold text-amber-700">
+              <p className="mx-4 mb-2 text-center text-sm font-bold text-amber-700">
                 {!matchedSku
                   ? 'Para registrar: bipe/digite o EAN ou toque em um item desta carga.'
                   : leituraQty <= 0
@@ -1566,7 +1564,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 type="button"
                 onClick={() => handleSaveCheckedItem(true)}
                 disabled={!canSaveItem}
-                className="flex-1 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-slate-800 font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 transition-colors"
+                className="flex-1 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-slate-800 font-extrabold rounded-xl text-sm sm:text-base flex items-center justify-center space-x-2 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 <span>Salvar e Adicionar Mais SKUs</span>
@@ -1576,7 +1574,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 type="button"
                 onClick={() => handleSaveCheckedItem(false)}
                 disabled={!canSaveItem}
-                className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-md shadow-amber-500/20 transition-all"
+                className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black rounded-xl text-sm sm:text-base flex items-center justify-center space-x-2 shadow-md shadow-amber-500/20 transition-all"
               >
                 <Check className="w-4 h-4" />
                 <span>Confirmar Item</span>
@@ -1692,22 +1690,12 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 />
               </div>
 
-              {/* Assinaturas (impressas no Book PDF) */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-slate-700">Assinaturas (saem no Book PDF):</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <SignaturePad
-                    label={`Conferente • ${user.name.split(' ')[0]}`}
-                    value={assinaturaConferente}
-                    onChange={setAssinaturaConferente}
-                  />
-                  <SignaturePad
-                    label={`Motorista${inspection.motorista ? ` • ${inspection.motorista.split(' ')[0]}` : ''}`}
-                    value={assinaturaMotorista}
-                    onChange={setAssinaturaMotorista}
-                  />
-                </div>
-              </div>
+              {/* Assinatura do conferente (impressa no Book PDF) */}
+              <SignaturePad
+                label={`Assinatura do Conferente • ${user.name} (sai no Book PDF)`}
+                value={assinaturaConferente}
+                onChange={setAssinaturaConferente}
+              />
 
               {/* Grupo de E-mails Destinatários */}
               <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 text-xs space-y-1.5">

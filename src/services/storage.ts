@@ -395,7 +395,7 @@ export const INITIAL_SETTINGS: AppSettings = {
     'controladoria.log@empresa.com.br',
     'auditoria.expedicao@empresa.com.br',
   ],
-  googleSheetListaDTUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT-LISTA-DT-DEMO/pubhtml',
+  googleSheetListaDTUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS1Z7A4dMhq84YU7X5rfYR1A-UbHh-6FFeAdR6GWfHMaDT9oj479fRcI1g2kj3wAZAIJLzSOQ7SAsrb/pubhtml',
   googleSheetFatUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTAzTcIro87wD0GBjfd5Hwys82G6MgN7b7jDPj0pQGXmjmVorc_dE-VhDFzNxnocTMZu0rpnWMR4-_G/pubhtml',
   beepSoundEnabled: true,
   vibrationEnabled: true,
@@ -633,6 +633,10 @@ export const storageService = {
       if (!parsed.googleSheetFatUrl || parsed.googleSheetFatUrl.includes('FAT-NFE-DEMO')) {
         parsed.googleSheetFatUrl = INITIAL_SETTINGS.googleSheetFatUrl;
       }
+      // Troca a URL vazia ou de demonstração da LISTA DT pela planilha real
+      if (!parsed.googleSheetListaDTUrl || parsed.googleSheetListaDTUrl.includes('LISTA-DT-DEMO')) {
+        parsed.googleSheetListaDTUrl = INITIAL_SETTINGS.googleSheetListaDTUrl;
+      }
       return parsed;
     } catch {
       return INITIAL_SETTINGS;
@@ -697,12 +701,13 @@ export const storageService = {
     }
     try {
       const rows: SheetRowDT[] = JSON.parse(data);
-      // Ensure DT 61008899 rows are present
-      INITIAL_SHEET_DT.forEach((initRow) => {
-        if (!rows.some((r) => r.dt === initRow.dt && r.sku === initRow.sku)) {
-          rows.unshift(initRow);
-        }
-      });
+      // Com dados reais da planilha, remove as linhas de simulação gravadas por versões anteriores do app
+      const isDemoRow = (r: SheetRowDT) => r.id.startsWith('dt-bramil-') || r.id.startsWith('dt-row-');
+      const clean = rows.filter((r) => !isDemoRow(r));
+      if (clean.length > 0 && clean.length !== rows.length) {
+        localStorage.setItem(STORAGE_KEYS.SHEET_DT, JSON.stringify(clean));
+        return clean;
+      }
       return rows;
     } catch {
       return INITIAL_SHEET_DT;
