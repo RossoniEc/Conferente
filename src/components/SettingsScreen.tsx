@@ -7,7 +7,9 @@ import {
   Volume2, 
   RotateCcw, 
   Plus, 
-  Trash2, 
+  Trash2,
+  Search,
+  Warehouse,
   Check, 
   Save, 
   Building2, 
@@ -29,8 +31,9 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { AppSettings, ProductDePara, SheetRowDT, SheetRowFAT, ClientNote } from '../types';
-import { fetchSheetFAT, parseCsvToSheetFAT } from '../services/sheetFat';
+import { fetchSheetFAT, parseCsvToSheetFAT, splitCsvLine } from '../services/sheetFat';
 import { fetchSheetDT, parseCsvToSheetDT } from '../services/sheetDt';
+import { EnderecosConfig } from './EnderecosConfig';
 import { playBeep } from '../services/sound';
 
 interface SettingsScreenProps {
@@ -53,7 +56,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onResetAllData,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'depara' | 'sheet_dt' | 'sheet_fat' | 'client_notes' | 'lista_negra' | 'emails' | 'geral'
+    'depara' | 'sheet_dt' | 'sheet_fat' | 'client_notes' | 'lista_negra' | 'enderecos' | 'emails' | 'geral'
   >('depara');
 
   // Lista Negra (placas com observação)
@@ -68,6 +71,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showClientNoteModal, setShowClientNoteModal] = useState(false);
   const [editingClientNote, setEditingClientNote] = useState<ClientNote | null>(null);
   const [clientInput, setClientInput] = useState('BRAMIL');
+  const [codClienteNotaInput, setCodClienteNotaInput] = useState('');
   const [mensagemInput, setMensagemInput] = useState('REDROBRAR A ATENÇÃO, NÃO ACEITA PALLET AVARIADO');
   const [nivelAlertaInput, setNivelAlertaInput] = useState<'urgente' | 'atencao' | 'informativo'>('urgente');
   const [ativoInput, setAtivoInput] = useState(true);
@@ -84,6 +88,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [codClienteInput, setCodClienteInput] = useState('');
   const [lastroInput, setLastroInput] = useState(12);
   const [camadaInput, setCamadaInput] = useState(5);
+  const [plPadraoInput, setPlPadraoInput] = useState<number | ''>('');
 
   // New Email Inputs
   const [newEmailCarga, setNewEmailCarga] = useState('');
@@ -95,13 +100,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const fileInputRefFAT = useRef<HTMLInputElement | null>(null);
   const fileInputRefDePara = useRef<HTMLInputElement | null>(null);
   const [importDeParaMsg, setImportDeParaMsg] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Tabela De/Para: pesquisa e paginação
+  const DEPARA_POR_PAGINA = 20;
+  const [deParaPage, setDeParaPage] = useState(1);
+  const [deParaBusca, setDeParaBusca] = useState('');
 
   // New DT Row Modal State
   const [showAddDtModal, setShowAddDtModal] = useState(false);
   const [manualDt, setManualDt] = useState('61008899');
-  const [manualPlaca, setManualPlaca] = useState('FDR-9087');
-  const [manualMotorista, setManualMotorista] = useState('Severino Silva');
-  const [manualTransp, setManualTransp] = useState('TransLog Brasil S/A');
+  const [manualPlaca, setManualPlaca] = useState('');
+  const [manualMotorista, setManualMotorista] = useState('');
+  const [manualTransp, setManualTransp] = useState('');
   const [manualSku, setManualSku] = useState('201304');
   const [manualDesc, setManualDesc] = useState('Papel A');
   const [manualQtd, setManualQtd] = useState(200);
@@ -226,9 +235,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     const newRow: SheetRowDT = {
       id: `man-dt-${Date.now()}`,
       dt: manualDt.trim().toUpperCase(),
-      placa: manualPlaca.trim().toUpperCase() || 'FDR-9087',
-      motorista: manualMotorista.trim() || 'Severino Silva',
-      transportadora: manualTransp.trim() || 'TransLog Brasil S/A',
+      placa: manualPlaca.trim().toUpperCase(),
+      motorista: manualMotorista.trim(),
+      transportadora: manualTransp.trim(),
       sku: manualSku.trim().toUpperCase(),
       codigoCliente:
         manualCodCliente.trim().toUpperCase() ||
@@ -275,6 +284,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setCodClienteInput(item.codigoCliente || '');
       setLastroInput(item.lastroPadrao || 12);
       setCamadaInput(item.camadaPadrao || 5);
+      setPlPadraoInput(item.plPadraoLinha ?? '');
     } else {
       setEditingDePara(null);
       setEanInput('');
@@ -285,6 +295,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setCodClienteInput('');
       setLastroInput(12);
       setCamadaInput(5);
+      setPlPadraoInput('');
     }
     setShowDeParaModal(true);
   };
@@ -307,6 +318,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       codigoCliente: codClienteInput.trim() || undefined,
       lastroPadrao: Number(lastroInput),
       camadaPadrao: Number(camadaInput),
+      plPadraoLinha: plPadraoInput === '' || Number(plPadraoInput) <= 0 ? undefined : Number(plPadraoInput),
     };
 
     let updatedList = [...currentSettings.deParaList];
@@ -326,9 +338,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     e.target.value = '';
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = String(event.target?.result || '').replace(/^﻿/, '');
+    const processar = (raw: string) => {
+      const text = raw.replace(/^﻿/, '');
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
       if (lines.length < 2) {
         setImportDeParaMsg({ ok: false, msg: 'Arquivo vazio ou sem linhas de produto.' });
@@ -336,54 +347,85 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       }
 
       const sep = lines[0].includes(';') ? ';' : lines[0].includes('\t') ? '\t' : ',';
-      const split = (l: string) => l.split(sep).map((c) => c.trim().replace(/^"|"$/g, ''));
-      const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const split = (l: string) => splitCsvLine(l, sep).map((c) => c.trim());
+      const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
       const header = split(lines[0]).map(norm);
-      const col = (...names: string[]) => header.findIndex((h) => names.some((n) => h.includes(n)));
+      // Cada campo pega a primeira coluna compatível ainda não usada (evita "codigo cliente" virar SKU ou cliente)
+      const usados = new Set<number>();
+      const col = (...tests: ((h: string) => boolean)[]) => {
+        for (const t of tests) {
+          const i = header.findIndex((h, k) => !usados.has(k) && t(h));
+          if (i >= 0) {
+            usados.add(i);
+            return i;
+          }
+        }
+        return -1;
+      };
 
-      const iEan = col('ean', 'barra');
-      const iSku = col('sku', 'codigo interno', 'material');
-      const iDesc = col('descri', 'produto', 'nome');
-      const iUn = col('unid', 'un');
-      const iEmb = col('embal');
-      const iLastro = col('lastro');
-      const iCamada = col('camada', 'altura');
-      const iCodCliente = col('cliente', 'cod cli', 'cod_cli');
+      const iCodCliente = col((h) => h.includes('cliente') || h.includes('cod cli') || h.includes('cod_cli'));
+      const iEan = col((h) => h.includes('ean') || h.includes('barra') || h.includes('gtin'));
+      const iSku = col((h) => h.includes('sku'), (h) => h.includes('codigo interno') || h.includes('material'));
+      const iDesc = col((h) => h.includes('descri'), (h) => h.includes('produto') || h.includes('nome'));
+      const iUn = col((h) => h.startsWith('unid') || h === 'un');
+      const iEmb = col((h) => h.includes('embal'));
+      const iLastro = col((h) => h.includes('lastro'));
+      const iCamada = col((h) => h.includes('camada') || h.includes('altura'));
+      const iPlPadrao = col((h) => h.includes('pl padr') || h.includes('padrao linha') || h.includes('pallet padr'));
 
-      if (iEan < 0 || iSku < 0) {
+      if (iSku < 0) {
         setImportDeParaMsg({
           ok: false,
-          msg: 'Cabeçalho não reconhecido. O arquivo precisa das colunas EAN e SKU (use o modelo).',
+          msg: 'Cabeçalho não reconhecido. O arquivo precisa ao menos da coluna SKU (use o modelo).',
         });
         return;
       }
+
+      // EAN válido: 8, 12, 13 ou 14 dígitos. "7,89E+12" = Excel converteu para notação científica (dígitos perdidos)
+      const lerEan = (txt: string | undefined): { ean: string; cientifico: boolean } => {
+        const t = (txt || '').trim();
+        if (/^\d+([.,]\d+)?e\+?\d+$/i.test(t)) return { ean: '', cientifico: true };
+        const d = t.replace(/\D/g, '');
+        return { ean: [8, 12, 13, 14].includes(d.length) ? d : '', cientifico: false };
+      };
+      const lerNum = (txt: string | undefined) => {
+        const n = Number((txt || '').replace(/\./g, '').replace(',', '.'));
+        return Number.isFinite(n) && n > 0 ? n : undefined;
+      };
 
       const list = [...currentSettings.deParaList];
       let novos = 0;
       let atualizados = 0;
       let ignorados = 0;
+      let eanCientifico = 0;
+      let eanInvalido = 0;
 
       lines.slice(1).forEach((line, idx) => {
         const c = split(line);
-        const ean = (c[iEan] || '').replace(/\D/g, '');
-        const sku = (c[iSku] || '').toUpperCase();
-        if (!ean || !sku) {
+        const sku = (c[iSku] || '').trim().toUpperCase();
+        if (!sku) {
           ignorados++;
           return;
         }
-        const num = (i: number) => (i >= 0 && Number(c[i]) > 0 ? Number(c[i]) : undefined);
-        const pos = list.findIndex((p) => p.ean === ean || p.sku.toUpperCase() === sku);
+        const { ean: eanLido, cientifico } = lerEan(iEan >= 0 ? c[iEan] : undefined);
+        if (cientifico) eanCientifico++;
+        else if (iEan >= 0 && c[iEan] && !eanLido) eanInvalido++;
+
+        // A chave é o SKU: produtos diferentes nunca se sobrescrevem por terem o mesmo EAN
+        const pos = list.findIndex((p) => p.sku.toUpperCase() === sku);
         const base = pos >= 0 ? list[pos] : undefined;
+        const eanBase = base && [8, 12, 13, 14].includes(base.ean.length) ? base.ean : '';
         const item: ProductDePara = {
           id: base?.id || `dp-imp-${Date.now()}-${idx}`,
-          ean,
+          ean: eanLido || eanBase,
           sku,
           descricao: (iDesc >= 0 && c[iDesc]) || base?.descricao || `Produto ${sku}`,
           unidade: ((iUn >= 0 && c[iUn]) || base?.unidade || 'CX').toUpperCase(),
           embalagem: (iEmb >= 0 && c[iEmb]) || base?.embalagem || 'Caixa Padrão',
           codigoCliente: ((iCodCliente >= 0 && c[iCodCliente]) || base?.codigoCliente || '').toUpperCase() || undefined,
-          lastroPadrao: num(iLastro) ?? base?.lastroPadrao,
-          camadaPadrao: num(iCamada) ?? base?.camadaPadrao,
+          lastroPadrao: (iLastro >= 0 ? lerNum(c[iLastro]) : undefined) ?? base?.lastroPadrao,
+          camadaPadrao: (iCamada >= 0 ? lerNum(c[iCamada]) : undefined) ?? base?.camadaPadrao,
+          plPadraoLinha: (iPlPadrao >= 0 ? lerNum(c[iPlPadrao]) : undefined) ?? base?.plPadraoLinha,
         };
         if (pos >= 0) {
           list[pos] = item;
@@ -395,13 +437,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       });
 
       updateSettings({ deParaList: list });
-      playBeep('success', currentSettings.beepSoundEnabled);
+      setDeParaPage(1);
+      const avisos = [
+        ignorados ? `${ignorados} linha(s) sem SKU ignorada(s)` : '',
+        eanCientifico
+          ? `${eanCientifico} EAN(s) em notação científica (ex.: 7,89E+12) — no Excel formate a coluna EAN como Texto e exporte de novo`
+          : '',
+        eanInvalido ? `${eanInvalido} EAN(s) com quantidade de dígitos inválida` : '',
+      ].filter(Boolean);
+      playBeep(avisos.length ? 'warning' : 'success', currentSettings.beepSoundEnabled);
       setImportDeParaMsg({
-        ok: true,
-        msg: `"${file.name}": ${novos} produto(s) novo(s), ${atualizados} atualizado(s)${
-          ignorados ? `, ${ignorados} linha(s) ignorada(s) sem EAN/SKU` : ''
-        }.`,
+        ok: eanCientifico + eanInvalido === 0,
+        msg: `"${file.name}": ${novos} produto(s) novo(s), ${atualizados} atualizado(s). Total cadastrado: ${list.length}.${
+          avisos.length ? ` Atenção: ${avisos.join('; ')}.` : ''
+        }`,
       });
+    };
+
+    // Arquivos do Excel costumam vir em ANSI (Windows-1252): se o UTF-8 quebrar os acentos, relê nessa codificação
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const utf8 = String(event.target?.result || '');
+      if (!utf8.includes('�')) {
+        processar(utf8);
+        return;
+      }
+      const ansi = new FileReader();
+      ansi.onload = (ev) => processar(String(ev.target?.result || ''));
+      ansi.readAsText(file, 'windows-1252');
     };
     reader.readAsText(file, 'UTF-8');
   };
@@ -409,12 +472,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Modelo de planilha para importação
   const handleDownloadDeParaTemplate = () => {
     const csv =
-      '﻿EAN;SKU;CODIGO CLIENTE;DESCRICAO;UNIDADE;EMBALAGEM;LASTRO;CAMADA\n' +
-      '7891201304012;201304;BR-PA-001;Papel A (BRAMIL);CX;Fardo Padrão;20;10\n';
+      '﻿EAN;SKU;CODIGO CLIENTE;DESCRICAO;UNIDADE;EMBALAGEM;LASTRO;CAMADA;PL PADRAO LINHA\n' +
+      '7891201304012;201304;BR-PA-001;Papel A (BRAMIL);CX;Fardo Padrão;20;10;200\n';
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = 'modelo_lista_sku.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Modelo da planilha LISTA DT (colunas do Google Sheet + PLACA e MOTORISTA opcionais)
+  const handleDownloadListaDtTemplate = () => {
+    const csv =
+      '﻿CODIGO DO CLIENTE;CLIENTE;OV;SKU;DESCRICAO;QTDE REMESSA;QTDE PALETES;Tipo de Carga;Categoria;REMESSA;DT TRANSPORTE;Data para Expedicao;PLACA;MOTORISTA;TRANSPORTADORA\n' +
+      '78451;BRAMIL;4500123;201304;Papel A;206;5;Paletizado;Papel;8001234;61008899;06/10/2026;FDR-9087;Severino Silva;TransLog Brasil\n';
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'modelo_lista_dt.csv';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -469,11 +545,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     if (lnEditId === id) resetLnForm();
   };
 
+  // Exclusão com confirmação na própria linha (confirm() é bloqueado em alguns navegadores/apps)
+  const [deParaDeleteId, setDeParaDeleteId] = useState<string | null>(null);
   const handleDeleteDePara = (id: string) => {
-    if (confirm('Excluir este item da tabela De/Para?')) {
-      const updated = currentSettings.deParaList.filter((i) => i.id !== id);
-      updateSettings({ deParaList: updated });
-    }
+    const updated = currentSettings.deParaList.filter((i) => i.id !== id);
+    updateSettings({ deParaList: updated });
+    setDeParaDeleteId(null);
+    playBeep('warning', currentSettings.beepSoundEnabled);
   };
 
   // Client Notes management
@@ -481,12 +559,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     if (note) {
       setEditingClientNote(note);
       setClientInput(note.cliente);
+      setCodClienteNotaInput(note.codigoCliente || '');
       setMensagemInput(note.mensagem);
       setNivelAlertaInput(note.nivelAlerta || 'urgente');
       setAtivoInput(note.ativo);
     } else {
       setEditingClientNote(null);
       setClientInput('BRAMIL');
+      setCodClienteNotaInput('');
       setMensagemInput('REDROBRAR A ATENÇÃO, NÃO ACEITA PALLET AVARIADO');
       setNivelAlertaInput('urgente');
       setAtivoInput(true);
@@ -510,6 +590,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           ? {
               ...n,
               cliente: clientInput.trim().toUpperCase(),
+              codigoCliente: codClienteNotaInput.trim().toUpperCase() || undefined,
               mensagem: mensagemInput.trim(),
               nivelAlerta: nivelAlertaInput,
               ativo: ativoInput,
@@ -520,6 +601,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       const newNote: ClientNote = {
         id: `cn-${Date.now()}`,
         cliente: clientInput.trim().toUpperCase(),
+        codigoCliente: codClienteNotaInput.trim().toUpperCase() || undefined,
         mensagem: mensagemInput.trim(),
         nivelAlerta: nivelAlertaInput,
         ativo: ativoInput,
@@ -596,7 +678,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
         <div>
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 block">
-            Tópico 6 • Parâmetros do Sistema
+            Tópico 8 • Parâmetros do Sistema
           </span>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center space-x-2">
             <SettingsIcon className="w-6 h-6 text-slate-700" />
@@ -684,6 +766,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         <button
           type="button"
+          onClick={() => setActiveTab('enderecos')}
+          className={`px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+            activeTab === 'enderecos'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Warehouse className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Endereços</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('emails')}
           className={`px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 whitespace-nowrap transition-all ${
             activeTab === 'emails'
@@ -708,6 +803,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <span>Empresa & Dispositivo</span>
         </button>
       </div>
+
+      {/* Endereços de Armazenagem (ruas, endereços e capacidade) */}
+      {activeTab === 'enderecos' && <EnderecosConfig />}
 
       {/* ============================================================ */}
       {/* TAB 1: Tabela De/Para (EAN <-> SKU) */}
@@ -782,8 +880,45 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           <p className="text-[11px] text-slate-500 -mt-1">
             Importação: arquivo CSV/TXT (Excel → "Salvar como CSV") com as colunas <strong>EAN; SKU; CODIGO CLIENTE; DESCRICAO;
-            UNIDADE; EMBALAGEM; LASTRO; CAMADA</strong>. Produtos com o mesmo EAN ou SKU são atualizados; os demais são adicionados.
+            UNIDADE; EMBALAGEM; LASTRO; CAMADA</strong>. Produtos com o mesmo SKU são atualizados; os demais são adicionados. No Excel, formate a coluna EAN como <strong>Texto</strong> antes de salvar.
           </p>
+
+          {(() => {
+            const termo = deParaBusca.trim().toLowerCase();
+            const filtrados = termo
+              ? currentSettings.deParaList.filter(
+                  (p) =>
+                    p.ean.includes(termo) || p.sku.toLowerCase().includes(termo) || p.descricao.toLowerCase().includes(termo)
+                )
+              : currentSettings.deParaList;
+            const totalPaginas = Math.max(1, Math.ceil(filtrados.length / DEPARA_POR_PAGINA));
+            const pagina = Math.min(deParaPage, totalPaginas);
+            const inicio = (pagina - 1) * DEPARA_POR_PAGINA;
+            const visiveis = filtrados.slice(inicio, inicio + DEPARA_POR_PAGINA);
+            const semEan = currentSettings.deParaList.filter((p) => !p.ean).length;
+            const btnPag =
+              'h-10 min-w-10 px-3 rounded-xl border text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
+            return (
+              <>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={deParaBusca}
+                onChange={(e) => {
+                  setDeParaBusca(e.target.value);
+                  setDeParaPage(1);
+                }}
+                placeholder="Pesquisar por EAN, SKU ou descrição"
+                className="w-full h-10 pl-9 pr-3 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white"
+              />
+            </div>
+            <span className="text-xs font-mono font-bold text-slate-500 whitespace-nowrap">
+              {filtrados.length} de {currentSettings.deParaList.length} produto(s)
+              {semEan > 0 && <span className="text-rose-600"> • {semEan} sem EAN</span>}
+            </span>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -791,46 +926,142 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <tr>
                   <th className="px-3 py-2.5">Código EAN</th>
                   <th className="px-3 py-2.5">SKU (Interno)</th>
-                  <th className="px-3 py-2.5">Código do Cliente</th>
                   <th className="px-3 py-2.5">Descrição do Produto</th>
                   <th className="px-3 py-2.5 text-center">Lastro x Camada</th>
+                  <th className="px-3 py-2.5 text-center" title="Volumes por pallet padrão de linha: base da quantidade de pallets na Separação">
+                    PL Padrão Linha
+                  </th>
                   <th className="px-3 py-2.5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {currentSettings.deParaList.map((item) => (
+                {visiveis.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-3 font-mono font-bold text-slate-800">{item.ean}</td>
+                    <td className="px-3 py-3 font-mono font-bold text-slate-800">
+                      {item.ean || (
+                        <span className="text-[11px] font-bold rounded-md bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5">
+                          Sem EAN
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-3 font-mono font-black text-blue-700">{item.sku}</td>
-                    <td className="px-3 py-3 font-mono font-bold text-slate-700">{item.codigoCliente || '—'}</td>
                     <td className="px-3 py-3 text-slate-700 font-medium">{item.descricao}</td>
                     <td className="px-3 py-3 text-center text-slate-600 font-mono">
                       {item.lastroPadrao || 12} x {item.camadaPadrao || 5} (
                       {(item.lastroPadrao || 12) * (item.camadaPadrao || 5)})
                     </td>
-                    <td className="px-3 py-3 text-right space-x-1">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenDeParaModal(item)}
-                        className="p-1 text-slate-500 hover:text-blue-600"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDePara(item.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="px-3 py-3 text-center">
+                      {item.plPadraoLinha ? (
+                        <span className="font-mono font-black text-indigo-700">{item.plPadraoLinha.toLocaleString('pt-BR')}</span>
+                      ) : (
+                        <span className="text-slate-400" title="Sem PL: a Separação usa Lastro x Camada">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      {deParaDeleteId === item.id ? (
+                        <div className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <span className="text-xs font-bold text-rose-700">Excluir?</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDePara(item.id)}
+                            className="h-9 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+                          >
+                            Sim
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeParaDeleteId(null)}
+                            className="h-9 px-3 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDeParaModal(item)}
+                            className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 flex items-center justify-center"
+                            title="Editar"
+                            aria-label={`Editar ${item.sku}`}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeParaDeleteId(item.id)}
+                            className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 flex items-center justify-center"
+                            title="Excluir"
+                            aria-label={`Excluir ${item.sku}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
+                {visiveis.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+                      Nenhum produto encontrado.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+
+          {/* Paginação */}
+          {totalPaginas > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <span className="text-xs text-slate-500">
+                Mostrando {inicio + 1}–{Math.min(inicio + DEPARA_POR_PAGINA, filtrados.length)} de {filtrados.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDeParaPage(1)}
+                  disabled={pagina === 1}
+                  className={`${btnPag} border-slate-300 bg-white text-slate-700 hover:bg-slate-100`}
+                  aria-label="Primeira página"
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeParaPage(pagina - 1)}
+                  disabled={pagina === 1}
+                  className={`${btnPag} border-slate-300 bg-white text-slate-700 hover:bg-slate-100`}
+                >
+                  ‹ Anterior
+                </button>
+                <span className="h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-black flex items-center whitespace-nowrap">
+                  {pagina} / {totalPaginas}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDeParaPage(pagina + 1)}
+                  disabled={pagina === totalPaginas}
+                  className={`${btnPag} border-slate-300 bg-white text-slate-700 hover:bg-slate-100`}
+                >
+                  Próxima ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeParaPage(totalPaginas)}
+                  disabled={pagina === totalPaginas}
+                  className={`${btnPag} border-slate-300 bg-white text-slate-700 hover:bg-slate-100`}
+                  aria-label="Última página"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -846,7 +1077,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <span>Base de Dados Google Sheet: "LISTA DT"</span>
               </h3>
               <p className="text-xs text-slate-500">
-                Itens planejados por DT, SKU, Quantidade, Placa, Motorista e Transportadora.
+                Modelo: CODIGO DO CLIENTE, CLIENTE, OV, SKU, DESCRICAO, QTDE REMESSA, QTDE PALETES, Tipo de Carga, Categoria, REMESSA, DT TRANSPORTE, Data para Expedicao + PLACA, MOTORISTA e TRANSPORTADORA (opcionais).
               </p>
             </div>
             <div className="flex items-center space-x-2">
@@ -910,6 +1141,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <FileUp className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Importar CSV</span>
               </button>
+              <button
+                type="button"
+                onClick={handleDownloadListaDtTemplate}
+                className="px-3 py-2 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 flex-shrink-0"
+                title="Baixar planilha modelo da LISTA DT (CSV)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Baixar Modelo</span>
+              </button>
               <input
                 ref={fileInputRefDT}
                 type="file"
@@ -941,22 +1181,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 sticky top-0">
                 <tr>
-                  <th className="px-3 py-2">DT</th>
+                  <th className="px-3 py-2">Código do Cliente</th>
                   <th className="px-3 py-2">Cliente</th>
+                  <th className="px-3 py-2">OV</th>
+                  <th className="px-3 py-2">SKU</th>
+                  <th className="px-3 py-2">Descrição</th>
+                  <th className="px-3 py-2 text-right">Qtde Remessa</th>
+                  <th className="px-3 py-2 text-right">Qtde Paletes</th>
+                  <th className="px-3 py-2">Tipo de Carga</th>
+                  <th className="px-3 py-2">Categoria</th>
+                  <th className="px-3 py-2">Remessa</th>
+                  <th className="px-3 py-2">DT Transporte</th>
+                  <th className="px-3 py-2">Data p/ Expedição</th>
                   <th className="px-3 py-2">Placa</th>
                   <th className="px-3 py-2">Motorista</th>
-                  <th className="px-3 py-2">SKU</th>
-                  <th className="px-3 py-2">Código do Cliente</th>
-                  <th className="px-3 py-2">Descrição</th>
-                  <th className="px-3 py-2 text-right">Qtd Plan.</th>
-                  <th className="px-3 py-2">Data</th>
+                  <th className="px-3 py-2">Transportadora</th>
                   <th className="px-2 py-2 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {sheetRowsDT.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2 font-mono font-bold text-slate-900">{r.dt}</td>
+                    <td className="px-3 py-2 font-mono text-slate-700">{r.codigoCliente || '—'}</td>
                     <td className="px-3 py-2 font-bold text-blue-700">
                       {r.cliente ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-800 border border-blue-200">
@@ -966,13 +1212,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <span className="text-slate-400 font-normal">-</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-700">{r.placa}</td>
-                    <td className="px-3 py-2 text-slate-600">{r.motorista}</td>
+                    <td className="px-3 py-2 font-mono text-slate-700">{r.ov || '—'}</td>
                     <td className="px-3 py-2 font-mono font-bold text-blue-700">{r.sku}</td>
-                    <td className="px-3 py-2 font-mono text-slate-700">{r.codigoCliente || '—'}</td>
                     <td className="px-3 py-2 text-slate-700 truncate max-w-xs">{r.descricao}</td>
                     <td className="px-3 py-2 text-right font-black text-slate-900 font-mono">{r.quantidade}</td>
+                    <td className="px-3 py-2 text-right font-mono text-slate-700">
+                      {r.qtdPallet != null ? r.qtdPallet.toLocaleString('pt-BR') : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.tipoCarga || '—'}</td>
+                    <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.categoria || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-slate-700">{r.remessa || '—'}</td>
+                    <td className="px-3 py-2 font-mono font-bold text-slate-900">{r.dt}</td>
                     <td className="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">{r.dataAgendamento ? r.dataAgendamento.split('-').reverse().join('/') : '—'}</td>
+                    <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">{r.placa || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.motorista || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.transportadora || '—'}</td>
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"
@@ -1375,6 +1629,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <span className="text-sm font-black font-mono text-slate-900 bg-white px-2.5 py-0.5 rounded-lg border border-slate-300">
                           {note.cliente}
                         </span>
+                        {note.codigoCliente && (
+                          <span className="text-xs font-bold font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200">
+                            Cód. {note.codigoCliente}
+                          </span>
+                        )}
 
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -1768,6 +2027,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">PL Padrão Linha (volumes por pallet):</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={plPadraoInput}
+                  onChange={(e) => setPlPadraoInput(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder={`Vazio = Lastro x Camada (${lastroInput * camadaInput})`}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-bold text-xs"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Base da quantidade de pallets na Separação de Carga: pallets = volume da DT ÷ PL Padrão Linha.
+                </p>
+              </div>
+
               <div className="pt-2 flex justify-end space-x-2">
                 <button
                   type="button"
@@ -1981,6 +2255,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Código do Cliente:</label>
+                <input
+                  type="text"
+                  value={codClienteNotaInput}
+                  onChange={(e) => setCodClienteNotaInput(e.target.value.toUpperCase())}
+                  placeholder="Ex: 179874 (coluna CODIGO DO CLIENTE da LISTA DT)"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold font-mono text-sm uppercase focus:outline-none focus:border-rose-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Opcional. Com o código, o aviso aparece em toda carga desse cliente, mesmo que o nome venha diferente na planilha.
+                </p>
               </div>
 
               <div>

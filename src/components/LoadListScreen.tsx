@@ -15,8 +15,9 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
-import { CargoInspection, ClientNote, PlacaListaNegra } from '../types';
+import { CargoInspection, ClientNote, PlacaListaNegra, notaPorCodigoCliente } from '../types';
 import { BookSummaryModal } from './BookSummaryModal';
+import { formatarDuracao } from '../services/tempo';
 import { ListaNegraAlert, findListaNegra } from './ListaNegraAlert';
 
 interface LoadListScreenProps {
@@ -38,7 +39,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
   clientNotes = [],
   onSelectInspection,
   onNavigateNewLoad,
-  headerTag = 'Tópico 3 • Gestão de Pátio',
+  headerTag = 'Tópico 5 • Gestão de Pátio',
   title = 'Lista de Carga (100% Carregadas)',
   mode = 'carregadas',
   listaNegra = [],
@@ -78,7 +79,12 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
     const loadCliente = (insp.itensPlanejados[0]?.cliente || '').toUpperCase();
     return clientNotes.find((n) => {
       const cli = n.cliente.toUpperCase();
-      return n.ativo && ((loadCliente && (cli === loadCliente || loadCliente.includes(cli))) || insp.dt.toUpperCase().includes(cli));
+      return (
+        n.ativo &&
+        ((loadCliente && (cli === loadCliente || loadCliente.includes(cli))) ||
+          insp.dt.toUpperCase().includes(cli) ||
+          notaPorCodigoCliente(n, insp.itensPlanejados))
+      );
     });
   };
 
@@ -201,7 +207,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
       </div>
 
       {/* Cards List */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && mode === 'carregadas' && !searchTerm ? null : filtered.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-3xl p-10 text-center text-slate-500 space-y-3">
           <Truck className="w-12 h-12 mx-auto text-slate-300" />
           <h3 className="font-bold text-slate-700 text-sm">Nenhuma carga encontrada</h3>
@@ -209,7 +215,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
             {searchTerm
               ? 'Nenhum resultado para a busca digitada. Tente outro termo.'
               : mode === 'carregadas'
-              ? 'Nenhuma carga 100% carregada aguardando finalização. As cargas em andamento estão em "2. Conferência de Carga".'
+              ? 'Nenhuma carga 100% carregada aguardando finalização. As cargas em andamento estão em "4. Conferência de Carga".'
               : 'Nenhuma carga em processo no momento. Importe uma nova carga para iniciar.'}
           </p>
           <button
@@ -338,7 +344,7 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
                   {/* Metadata line */}
                   <div className="text-xs text-slate-500 space-y-1">
                     <p className="truncate">
-                      <span className="font-semibold text-slate-700">Motorista:</span> {insp.motorista || 'Severino Silva'}
+                      <span className="font-semibold text-slate-700">Motorista:</span> {insp.motorista || 'Não informado'}
                     </p>
                     <p className="truncate">
                       <span className="font-semibold text-slate-700">Transportadora:</span>{' '}
@@ -433,6 +439,82 @@ export const LoadListScreen: React.FC<LoadListScreenProps> = ({
           })}
         </div>
       )}
+
+      {/* DTs finalizadas hoje */}
+      {mode === 'carregadas' && (() => {
+        const hoje = new Date().toLocaleDateString('pt-BR');
+        const finalizadasHoje = inspections
+          .filter((i) => (i.status === 'concluido' || i.status.startsWith('faturado')) && (i.dataFim || '').startsWith(hoje))
+          .sort((a, b) => (b.dataFim || '').localeCompare(a.dataFim || ''));
+        const volumeHoje = finalizadasHoje.reduce(
+          (acc, i) => acc + i.itensConferidos.reduce((a, it) => a + it.quantidadeCarregada, 0),
+          0
+        );
+        const statusFinal = (st: CargoInspection['status']) =>
+          st === 'faturado_conferido'
+            ? { txt: 'Faturada', cor: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
+            : st === 'faturado_divergente'
+            ? { txt: 'Faturada c/ divergência', cor: 'bg-rose-100 text-rose-800 border-rose-200' }
+            : { txt: 'Aguardando faturamento', cor: 'bg-purple-100 text-purple-800 border-purple-200' };
+        return (
+          <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                DTs Finalizadas Hoje
+                <span className="text-xs font-black bg-emerald-100 text-emerald-800 rounded-full px-2 py-0.5">
+                  {finalizadasHoje.length}
+                </span>
+              </h3>
+              <span className="text-xs font-mono font-bold text-slate-500">
+                {hoje} • {volumeHoje.toLocaleString('pt-BR')} vol.
+              </span>
+            </div>
+            {finalizadasHoje.length === 0 ? (
+              <p className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500 text-center">
+                Nenhuma DT finalizada hoje.
+              </p>
+            ) : (
+              <div className="border border-slate-200 rounded-xl divide-y divide-slate-200 overflow-hidden">
+                {finalizadasHoje.map((insp) => {
+                  const vol = insp.itensConferidos.reduce((a, it) => a + it.quantidadeCarregada, 0);
+                  const cliente = Array.from(new Set(insp.itensPlanejados.map((p) => p.cliente).filter(Boolean))).join(' • ');
+                  const tempo = formatarDuracao(insp.dataInicio, insp.dataFim);
+                  const st = statusFinal(insp.status);
+                  return (
+                    <div key={insp.id} className="px-3 sm:px-4 py-3 flex items-center gap-3">
+                      <span className="flex-1 min-w-0">
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="font-black font-mono text-base text-slate-900">{/^DT/i.test(insp.dt) ? insp.dt : `DT ${insp.dt}`}</span>
+                          <span className={`text-[11px] font-bold rounded-md border px-1.5 py-0.5 whitespace-nowrap ${st.cor}`}>{st.txt}</span>
+                        </span>
+                        {cliente && <span className="block text-sm font-bold text-slate-800 truncate">{cliente}</span>}
+                        <span className="block text-xs text-slate-500 truncate">
+                          {[insp.placa, `finalizada ${(insp.dataFim || '').split(', ')[1] || insp.dataFim || ''}`, tempo ? `tempo ${tempo}` : '']
+                            .filter(Boolean)
+                            .join(' • ')}
+                        </span>
+                      </span>
+                      <span className="text-xs font-black font-mono text-slate-900 bg-slate-50 border border-slate-200 rounded-md px-2 py-0.5 whitespace-nowrap">
+                        {vol.toLocaleString('pt-BR')} vol.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInspectionForBook(insp)}
+                        className="h-10 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 shrink-0"
+                        title="Ver Book de Carregamento"
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span className="hidden sm:inline">Book</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Book Summary Modal */}
       {selectedInspectionForBook && (

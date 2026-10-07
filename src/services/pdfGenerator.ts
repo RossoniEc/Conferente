@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
-import { CargoInspection } from '../types';
+import { CargoInspection, ClientNote, descreverMotivoCorte, notaPorCodigoCliente, resumoRetornoPallet } from '../types';
+import { formatarDuracao } from './tempo';
 
 export function generateBookCarregamentoPdf(
   inspection: CargoInspection,
@@ -43,7 +44,7 @@ export function generateBookCarregamentoPdf(
   // Identification Box
   doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(10, y, pageWidth - 20, 26, 2, 2, 'FD');
+  doc.roundedRect(10, y, pageWidth - 20, 38, 2, 2, 'FD');
 
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(9);
@@ -61,18 +62,18 @@ export function generateBookCarregamentoPdf(
   doc.setFont('helvetica', 'normal');
   doc.text(`Placa do Veículo:`, 14, y + 19);
   doc.setFont('helvetica', 'bold');
-  doc.text(inspection.placa || 'NÃO INFORMADA', 50, y + 19);
+  doc.text(`${inspection.placa || 'NÃO INFORMADA'}${inspection.doca ? ` • ${inspection.doca}` : ''}`, 50, y + 19);
 
   // Column 2
   doc.setFont('helvetica', 'normal');
   doc.text(`Motorista:`, 95, y + 13);
   doc.setFont('helvetica', 'bold');
-  doc.text(inspection.motorista || 'Severino Silva', 120, y + 13);
+  doc.text(inspection.motorista || 'Não informado', 120, y + 13);
 
   doc.setFont('helvetica', 'normal');
   doc.text(`Transportadora:`, 95, y + 19);
   doc.setFont('helvetica', 'bold');
-  doc.text(inspection.transportadora || 'TransLog Brasil S/A', 120, y + 19);
+  doc.text(inspection.transportadora || 'Não informada', 120, y + 19);
 
   // Column 3
   doc.setFont('helvetica', 'normal');
@@ -85,7 +86,30 @@ export function generateBookCarregamentoPdf(
   doc.setFont('helvetica', 'bold');
   doc.text(inspection.conferente, 170, y + 19);
 
-  y += 28;
+  // Início, término e tempo total de carregamento
+  {
+    const tempo = formatarDuracao(inspection.dataInicio, inspection.dataFim);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Início:', 14, y + 25);
+    doc.setFont('helvetica', 'bold');
+    doc.text(inspection.dataInicio || '-', 50, y + 25);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Término:', 95, y + 25);
+    doc.setFont('helvetica', 'bold');
+    doc.text(inspection.dataFim || 'Em andamento', 120, y + 25);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Tempo total:', 150, y + 25);
+    doc.setFont('helvetica', 'bold');
+    doc.text(tempo || '-', 170, y + 25);
+  }
+
+  // Retorno de pallets
+  doc.setFont('helvetica', 'normal');
+  doc.text('Retorno de pallets:', 14, y + 31);
+  doc.setFont('helvetica', 'bold');
+  doc.text(resumoRetornoPallet(inspection.retornoPallet), 50, y + 31);
+
+  y += 40;
 
   // Quadro Resumo: Total Planejado x Carregado x Faturado x Diferença
   {
@@ -226,9 +250,10 @@ export function generateBookCarregamentoPdf(
     const corte = item.corteOperacional?.quantidade || 0;
     totalCorteTabela += corte;
     if (item.corteOperacional && corte > 0) {
-      const prev = cortesResumo.find((c) => c.sku === item.sku && c.motivo === item.corteOperacional!.motivo);
+      const motivoTxt = descreverMotivoCorte(item.corteOperacional);
+      const prev = cortesResumo.find((c) => c.sku === item.sku && c.motivo === motivoTxt);
       if (prev) prev.quantidade += corte;
-      else cortesResumo.push({ sku: item.sku, quantidade: corte, motivo: item.corteOperacional.motivo });
+      else cortesResumo.push({ sku: item.sku, quantidade: corte, motivo: motivoTxt });
     }
     if (existing) {
       existing.carregado += item.quantidadeCarregada;
@@ -391,58 +416,144 @@ export function generateBookCarregamentoPdf(
   doc.text('BOOK FOTOGRÁFICO DE CARREGAMENTO & EVIDÊNCIAS', 10, y);
   y += 4;
 
-  // Collect photos
-  const allPhotos: { label: string; dataUrl: string }[] = [];
+  // Fotos agrupadas por lançamento (todas as fotos, com página nova quando não couber)
+  type GrupoFotos = { titulo: string; sub?: string; cor: [number, number, number]; fotos: { label: string; dataUrl: string }[] };
+  const coresGrupo: [number, number, number][] = [
+    [217, 119, 6], // âmbar
+    [37, 99, 235], // azul
+    [5, 150, 105], // verde
+    [124, 58, 237], // roxo
+    [225, 29, 72], // vermelho
+    [8, 145, 178], // ciano
+  ];
+  const grupos: GrupoFotos[] = [];
   if (inspection.fotoVeiculoInicio) {
-    allPhotos.push({ label: 'Veículo Chegada / Placa', dataUrl: inspection.fotoVeiculoInicio });
+    grupos.push({
+      titulo: `VEÍCULO NA CHEGADA • PLACA ${inspection.placa || '-'}`,
+      cor: [100, 116, 139],
+      fotos: [{ label: 'Veículo na chegada', dataUrl: inspection.fotoVeiculoInicio }],
+    });
   }
   inspection.itensConferidos.forEach((item, idx) => {
-    item.fotos.forEach((foto, fIdx) => {
-      allPhotos.push({
-        label: `${item.sku} (Lote: ${item.lote || 'S/L'}) #${fIdx + 1}`,
+    if (!item.fotos.length) return;
+    const n = idx + 1;
+    grupos.push({
+      titulo: `LANÇAMENTO #${n} • SKU ${item.sku} • ${item.quantidadeCarregada} VOL. • LOTE ${item.lote || 'S/L'}`,
+      sub: item.descricao,
+      cor: coresGrupo[(n - 1) % coresGrupo.length],
+      fotos: item.fotos.map((foto, fIdx) => ({
+        label: `#${n} ${item.sku} • ${item.quantidadeCarregada} vol. • foto ${fIdx + 1}/${item.fotos.length}`,
         dataUrl: foto,
-      });
+      })),
     });
   });
-  if (inspection.fotoVeiculoFim) {
-    allPhotos.push({
-      label: `Fechamento / Lacre: ${inspection.numeroLacre || 'OK'}`,
-      dataUrl: inspection.fotoVeiculoFim,
+  if (inspection.retornoPallet?.fotoPallets || inspection.retornoPallet?.fotoControle) {
+    const rp = inspection.retornoPallet;
+    grupos.push({
+      titulo: `RETORNO DE PALLETS • ${resumoRetornoPallet(rp).toUpperCase()}`,
+      cor: [217, 119, 6],
+      fotos: [
+        rp.fotoPallets ? { label: 'Pallets retornados', dataUrl: rp.fotoPallets } : null,
+        rp.fotoControle ? { label: 'Controle de Recebimento', dataUrl: rp.fotoControle } : null,
+      ].filter((x): x is { label: string; dataUrl: string } => !!x),
+    });
+  }
+  if (inspection.fotosGerais?.length) {
+    grupos.push({
+      titulo: 'FOTOS GERAIS DA CARGA',
+      cor: [71, 85, 105],
+      fotos: inspection.fotosGerais.map((foto, i) => ({
+        label: `Foto geral ${i + 1}/${inspection.fotosGerais.length}`,
+        dataUrl: foto,
+      })),
+    });
+  }
+  const fotosFechamento = [
+    inspection.fotoVeiculoFim ? { label: 'Final da carga', dataUrl: inspection.fotoVeiculoFim } : null,
+    inspection.fotoLacre ? { label: `Lacre ${inspection.numeroLacre || 'OK'}`, dataUrl: inspection.fotoLacre } : null,
+  ].filter((x): x is { label: string; dataUrl: string } => !!x);
+  if (fotosFechamento.length) {
+    grupos.push({
+      titulo: `FECHAMENTO • LACRE ${inspection.numeroLacre || 'OK'}`,
+      cor: [100, 116, 139],
+      fotos: fotosFechamento,
     });
   }
 
-  // Draw photo grid or placeholders
-  if (allPhotos.length > 0) {
-    const photoWidth = 56;
-    const photoHeight = 42;
-    let photoX = 10;
+  if (grupos.length > 0) {
+    const margem = 10;
+    const larguraUtil = pageWidth - margem * 2;
+    const colunas = 3;
+    const espaco = 5;
+    const photoWidth = (larguraUtil - 6 - espaco * (colunas - 1)) / colunas;
+    const photoHeight = photoWidth * 0.75;
+    const legendaAltura = 6;
+    const linhaAltura = photoHeight + espaco;
+    const topoPagina = 15;
+    const limite = pageHeight - 12;
 
-    allPhotos.slice(0, 3).forEach((item) => {
-      try {
-        doc.addImage(item.dataUrl, 'JPEG', photoX, y, photoWidth, photoHeight);
-      } catch {
-        // Fallback placeholder box
-        doc.setFillColor(241, 245, 249);
-        doc.rect(photoX, y, photoWidth, photoHeight, 'F');
-        doc.setFontSize(7);
-        doc.setTextColor(100, 116, 139);
-        doc.text('Foto Registrada', photoX + 8, y + 20);
+    grupos.forEach((g) => {
+      const cabecalhoAltura = g.sub ? 12 : 8;
+      // Cabeçalho + pelo menos uma linha de fotos precisam caber na página
+      if (y + cabecalhoAltura + linhaAltura + 4 > limite) {
+        doc.addPage();
+        y = topoPagina;
       }
+      let inicioSegmento = y;
+      const fecharMoldura = (ate: number) => {
+        doc.setDrawColor(g.cor[0], g.cor[1], g.cor[2]);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(margem, inicioSegmento, larguraUtil, ate - inicioSegmento, 2, 2, 'D');
+        doc.setLineWidth(0.2);
+      };
 
-      doc.setDrawColor(203, 213, 225);
-      doc.rect(photoX, y, photoWidth, photoHeight, 'D');
-
-      doc.setFillColor(15, 23, 42);
-      doc.rect(photoX, y + photoHeight - 6, photoWidth, 6, 'F');
+      // Cabeçalho colorido do grupo
+      doc.setFillColor(g.cor[0], g.cor[1], g.cor[2]);
+      doc.rect(margem, y, larguraUtil, cabecalhoAltura, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(6.5);
       doc.setFont('helvetica', 'bold');
-      doc.text(item.label.substring(0, 30), photoX + 2, y + photoHeight - 2);
+      doc.setFontSize(8);
+      doc.text(g.titulo, margem + 3, y + 5.2);
+      if (g.sub) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text(g.sub.substring(0, 110), margem + 3, y + 9.8);
+      }
+      y += cabecalhoAltura + 3;
 
-      photoX += photoWidth + 8;
+      g.fotos.forEach((foto, i) => {
+        const col = i % colunas;
+        if (col === 0 && i > 0) y += linhaAltura;
+        // Quebra de página no meio do grupo: fecha a moldura e continua na próxima página
+        if (col === 0 && y + photoHeight > limite) {
+          fecharMoldura(y - 1);
+          doc.addPage();
+          y = topoPagina;
+          inicioSegmento = y;
+        }
+        const x = margem + 3 + col * (photoWidth + espaco);
+        try {
+          doc.addImage(foto.dataUrl, 'JPEG', x, y, photoWidth, photoHeight, undefined, 'FAST');
+        } catch {
+          doc.setFillColor(241, 245, 249);
+          doc.rect(x, y, photoWidth, photoHeight, 'F');
+          doc.setFontSize(7);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Foto registrada', x + 4, y + photoHeight / 2);
+        }
+        doc.setDrawColor(g.cor[0], g.cor[1], g.cor[2]);
+        doc.rect(x, y, photoWidth, photoHeight, 'D');
+        doc.setFillColor(15, 23, 42);
+        doc.rect(x, y + photoHeight - legendaAltura, photoWidth, legendaAltura, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(6.3);
+        doc.setFont('helvetica', 'bold');
+        doc.text(foto.label.substring(0, 42), x + 1.5, y + photoHeight - 2);
+      });
+      y += photoHeight + 3;
+      fecharMoldura(y);
+      y += 5;
     });
-
-    y += photoHeight + 10;
   } else {
     doc.setFillColor(248, 250, 252);
     doc.rect(10, y, pageWidth - 20, 20, 'F');
@@ -489,7 +600,7 @@ export function generateBookCarregamentoPdf(
   doc.text(`Matrícula: ${inspection.matriculaConferente || 'CONF-8842'}`, 15, sigY + 20);
 
   doc.setFont('helvetica', 'bold');
-  doc.text(`MOTORISTA: ${(inspection.motorista || 'Severino Silva').toUpperCase()}`, 115, sigY + 16);
+  doc.text('MOTORISTA', 115, sigY + 16);
   doc.setFont('helvetica', 'normal');
   doc.text(`Placa: ${inspection.placa} • Lacre: ${inspection.numeroLacre || 'S/ LACRE'}`, 115, sigY + 20);
 
@@ -500,3 +611,28 @@ export function generateBookCarregamentoPdf(
 
   return { doc, filename, blobUrl };
 }
+
+// Instrução do cliente que vai impressa no Book (mesma regra da tela)
+export const notaClienteDoBook = (inspection: CargoInspection, clientNotes: ClientNote[] = []) => {
+  const loadCli = inspection.itensPlanejados.find((p) => p.cliente)?.cliente || '';
+  const matching = clientNotes.find(
+    (n) =>
+      n.ativo &&
+      ((loadCli && (n.cliente.toUpperCase() === loadCli.toUpperCase() || loadCli.toUpperCase().includes(n.cliente.toUpperCase()))) ||
+        inspection.dt.toUpperCase().includes(n.cliente.toUpperCase()) ||
+        notaPorCodigoCliente(n, inspection.itensPlanejados) ||
+        n.cliente.toUpperCase() === 'GERAL')
+  );
+  return matching ? `${matching.cliente}: ${matching.mensagem}` : undefined;
+};
+
+// Gera e baixa o Book completo (todas as informações e fotos). Usado pelo Book e pelo e-mail.
+export const baixarBookCarregamentoPdf = (
+  inspection: CargoInspection,
+  empresaNome?: string,
+  unidadeCD?: string,
+  clientNotes: ClientNote[] = []
+) => {
+  const { doc, filename } = generateBookCarregamentoPdf(inspection, empresaNome, unidadeCD, notaClienteDoBook(inspection, clientNotes));
+  doc.save(filename);
+};

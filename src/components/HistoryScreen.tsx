@@ -15,7 +15,7 @@ import {
   AlertTriangle,
   FileSpreadsheet,
 } from 'lucide-react';
-import { AppSettings, CargoInspection } from '../types';
+import { AppSettings, CargoInspection, descreverMotivoCorte } from '../types';
 import { generateBookCarregamentoPdf } from '../services/pdfGenerator';
 
 interface HistoryScreenProps {
@@ -105,7 +105,7 @@ const calcResumo = (lista: CargoInspection[]) => {
         sku: i.sku,
         descricao: i.descricao,
         quantidade: i.corteOperacional!.quantidade,
-        motivo: i.corteOperacional!.motivo,
+        motivo: descreverMotivoCorte(i.corteOperacional!),
         quando: i.corteOperacional!.timestamp,
       }))
   );
@@ -244,7 +244,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ inspections, setti
             i.pallets ?? null,
             i.quantidadeCarregada,
             i.corteOperacional?.quantidade ?? null,
-            i.corteOperacional?.motivo || '',
+            i.corteOperacional ? descreverMotivoCorte(i.corteOperacional) : '',
             i.timestamp,
           ])
         ),
@@ -310,8 +310,9 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ inspections, setti
       item.fotos.forEach((f, idx) => fotos.push({ label: `${item.sku} • Lote ${item.lote || 'S/L'} #${idx + 1}`, src: f }))
     );
     selected.fotosGerais?.forEach((f, idx) => fotos.push({ label: `Foto geral #${idx + 1}`, src: f }));
-    if (selected.fotoVeiculoFim) {
-      fotos.push({ label: `Fechamento / Lacre ${selected.numeroLacre || ''}`.trim(), src: selected.fotoVeiculoFim });
+    if (selected.fotoVeiculoFim) fotos.push({ label: 'Final da carga', src: selected.fotoVeiculoFim });
+    if (selected.fotoLacre) {
+      fotos.push({ label: `Lacre ${selected.numeroLacre || ''}`.trim(), src: selected.fotoLacre });
     }
 
     return (
@@ -448,7 +449,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ inspections, setti
                       {item.corteOperacional ? (
                         <span className="inline-flex items-center gap-1">
                           <Scissors className="w-3 h-3" />
-                          {item.corteOperacional.quantidade} • {item.corteOperacional.motivo}
+                          {item.corteOperacional.quantidade} • {descreverMotivoCorte(item.corteOperacional)}
                         </span>
                       ) : (
                         '—'
@@ -563,7 +564,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ inspections, setti
     <div className="max-w-5xl mx-auto px-4 py-5 sm:py-6 space-y-5">
       <div className="pb-3 border-b border-slate-200">
         <span className="text-[11px] font-black uppercase tracking-wider text-sky-600 block">
-          Tópico 5 • Consulta
+          Tópico 7 • Consulta
         </span>
         <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center gap-2">
           <History className="w-6 h-6 text-sky-600" />
@@ -858,6 +859,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ inspections, setti
               insp.itensConferidos.reduce((a, i) => a + i.fotos.length, 0) +
               (insp.fotoVeiculoInicio ? 1 : 0) +
               (insp.fotoVeiculoFim ? 1 : 0) +
+              (insp.fotoLacre ? 1 : 0) +
               (insp.fotosGerais?.length || 0);
             return (
               <button

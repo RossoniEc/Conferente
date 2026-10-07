@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, Download, FileText, CheckCircle2, AlertTriangle, User, Truck, ShieldCheck, Image as ImageIcon } from 'lucide-react';
-import { CargoInspection, ClientNote } from '../types';
-import { generateBookCarregamentoPdf } from '../services/pdfGenerator';
+import { CargoInspection, ClientNote, notaPorCodigoCliente, resumoRetornoPallet } from '../types';
+import { baixarBookCarregamentoPdf } from '../services/pdfGenerator';
 
 interface BookSummaryModalProps {
   inspection: CargoInspection;
@@ -18,6 +18,8 @@ export const BookSummaryModal: React.FC<BookSummaryModalProps> = ({
   empresaNome = 'LOGÍSTICA & DISTRIBUIÇÃO NACIONAL LTDA',
   unidadeCD = 'CD 01 - Matriz São Paulo',
 }) => {
+  // Foto do book aberta em tela cheia
+  const [fotoAmpliada, setFotoAmpliada] = useState<{ src: string; titulo: string } | null>(null);
   // Consolidate SKUs
   const map = new Map<string, {
     sku: string;
@@ -73,19 +75,7 @@ export const BookSummaryModal: React.FC<BookSummaryModalProps> = ({
   const totalDiferenca = totalCarreg - totalPlan;
   const isConforme = totalDiferenca === 0;
 
-  const handleDownloadPdf = () => {
-    const loadCli = inspection.itensPlanejados.find((p) => p.cliente)?.cliente || '';
-    const matching = clientNotes?.find(
-      (n) => n.ativo && (
-        (loadCli && (n.cliente.toUpperCase() === loadCli.toUpperCase() || loadCli.toUpperCase().includes(n.cliente.toUpperCase()))) ||
-        inspection.dt.toUpperCase().includes(n.cliente.toUpperCase()) ||
-        n.cliente.toUpperCase() === 'GERAL'
-      )
-    );
-    const noteText = matching ? `${matching.cliente}: ${matching.mensagem}` : undefined;
-    const { doc, filename } = generateBookCarregamentoPdf(inspection, empresaNome, unidadeCD, noteText);
-    doc.save(filename);
-  };
+  const handleDownloadPdf = () => baixarBookCarregamentoPdf(inspection, empresaNome, unidadeCD, clientNotes);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
@@ -101,6 +91,12 @@ export const BookSummaryModal: React.FC<BookSummaryModalProps> = ({
               <p className="text-xs text-slate-300">
                 DT: <span className="font-mono text-amber-300">{inspection.dt}</span> • Placa:{' '}
                 <span className="font-mono text-amber-300">{inspection.placa}</span>
+                {inspection.doca && (
+                  <>
+                    {' • '}
+                    <span className="font-mono text-amber-300">{inspection.doca}</span>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -155,6 +151,7 @@ export const BookSummaryModal: React.FC<BookSummaryModalProps> = ({
               (n) => n.ativo && (
                 (loadCli && (n.cliente.toUpperCase() === loadCli.toUpperCase() || loadCli.toUpperCase().includes(n.cliente.toUpperCase()))) ||
                 inspection.dt.toUpperCase().includes(n.cliente.toUpperCase()) ||
+                notaPorCodigoCliente(n, inspection.itensPlanejados) ||
                 n.cliente.toUpperCase() === 'GERAL'
               )
             );
@@ -228,30 +225,171 @@ export const BookSummaryModal: React.FC<BookSummaryModalProps> = ({
               <ImageIcon className="w-4 h-4 mr-1.5 text-amber-500" />
               Evidências Fotográficas do Book
             </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* Fotos agrupadas por lançamento: cada grupo com borda e cabeçalho próprios */}
+            <div className="space-y-3">
               {inspection.fotoVeiculoInicio && (
-                <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                  <img src={inspection.fotoVeiculoInicio} alt="Veículo Inicial" className="w-full h-28 object-cover" />
-                  <div className="p-1.5 text-center text-[10px] font-bold text-slate-700 bg-white">Veículo Chegada</div>
+                <div className="rounded-2xl border-2 border-slate-400 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-100 border-b border-slate-300 text-sm font-black text-slate-800">
+                    Veículo na chegada • Placa {inspection.placa || '—'}
+                  </div>
+                  <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setFotoAmpliada({ src: inspection.fotoVeiculoInicio as string, titulo: 'Veículo na chegada' })}
+                      className="rounded-xl overflow-hidden border border-slate-200 hover:border-amber-400 transition-colors"
+                    >
+                      <img src={inspection.fotoVeiculoInicio} alt="Veículo na chegada" className="w-full aspect-[4/3] object-cover" />
+                    </button>
+                  </div>
                 </div>
               )}
-              {inspection.itensConferidos.flatMap((item) =>
-                item.fotos.map((f, i) => (
-                  <div key={`${item.id}-${i}`} className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                    <img src={f} alt={item.sku} className="w-full h-28 object-cover" />
-                    <div className="p-1.5 text-center text-[10px] font-bold text-slate-700 bg-white truncate">
-                      {item.sku} - {item.lote || 'S/L'}
+              {inspection.itensConferidos
+                .map((item, idx) => ({ item, n: idx + 1 }))
+                .filter(({ item }) => item.fotos.length > 0)
+                .map(({ item, n }) => {
+                  const cores = [
+                    'border-amber-400 bg-amber-50',
+                    'border-blue-400 bg-blue-50',
+                    'border-emerald-400 bg-emerald-50',
+                    'border-violet-400 bg-violet-50',
+                    'border-rose-400 bg-rose-50',
+                    'border-cyan-400 bg-cyan-50',
+                  ];
+                  const cor = cores[(n - 1) % cores.length];
+                  const [borda, fundo] = cor.split(' ');
+                  return (
+                    <div key={item.id} className={`rounded-2xl border-2 ${borda} overflow-hidden`}>
+                      <div className={`px-3 py-2 ${fundo} border-b ${borda} space-y-0.5`}>
+                        <p className="text-sm font-black text-slate-900 flex flex-wrap items-center gap-x-2">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">Lançamento #{n}</span>
+                          <span className="font-mono">{item.sku}</span>
+                          <span className="text-[11px] font-bold text-slate-500">
+                            {item.fotos.length} foto{item.fotos.length > 1 ? 's' : ''}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-700 leading-snug">{item.descricao}</p>
+                        <p className="text-xs text-slate-600">
+                          Qtd: <strong className="text-slate-900">{item.quantidadeCarregada.toLocaleString('pt-BR')} vol.</strong>
+                          {' • '}Lote <span className="font-mono">{item.lote || 'S/L'}</span>
+                        </p>
+                      </div>
+                      <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white">
+                        {item.fotos.map((foto, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() =>
+                              setFotoAmpliada({
+                                src: foto,
+                                titulo: `Lançamento #${n} • ${item.sku} — ${item.descricao} • ${item.quantidadeCarregada} vol. • Lote ${item.lote || 'S/L'}`,
+                              })
+                            }
+                            className="relative rounded-xl overflow-hidden border border-slate-200 hover:border-amber-400 transition-colors"
+                          >
+                            <img src={foto} alt={`${item.sku} foto ${i + 1}`} className="w-full aspect-[4/3] object-cover" />
+                            {item.fotos.length > 1 && (
+                              <span className="absolute top-2 left-2 text-[11px] font-black rounded-md bg-slate-900/75 text-white px-1.5 py-0.5">
+                                {i + 1}/{item.fotos.length}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                  );
+                })}
+              {inspection.retornoPallet && (
+                <div className="rounded-2xl border-2 border-amber-400 overflow-hidden">
+                  <div className="px-3 py-2 bg-amber-50 border-b border-amber-300 text-sm font-black text-slate-800">
+                    Retorno de pallets • {resumoRetornoPallet(inspection.retornoPallet)}
                   </div>
-                ))
+                  {(inspection.retornoPallet.fotoPallets || inspection.retornoPallet.fotoControle) && (
+                    <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[
+                        { src: inspection.retornoPallet.fotoPallets, titulo: 'Pallets retornados' },
+                        { src: inspection.retornoPallet.fotoControle, titulo: 'Controle de Recebimento' },
+                      ]
+                        .filter((x) => x.src)
+                        .map((x) => (
+                          <button
+                            key={x.titulo}
+                            type="button"
+                            onClick={() => setFotoAmpliada({ src: x.src as string, titulo: x.titulo })}
+                            className="relative rounded-xl overflow-hidden border border-slate-200 hover:border-amber-400 transition-colors"
+                          >
+                            <img src={x.src} alt={x.titulo} className="w-full aspect-[4/3] object-cover" />
+                            <span className="absolute top-2 left-2 text-[11px] font-black rounded-md bg-slate-900/75 text-white px-1.5 py-0.5">
+                              {x.titulo}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
               )}
-              {inspection.fotoVeiculoFim && (
-                <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                  <img src={inspection.fotoVeiculoFim} alt="Veículo Final Lacre" className="w-full h-28 object-cover" />
-                  <div className="p-1.5 text-center text-[10px] font-bold text-slate-700 bg-white">Lacre Final</div>
+              {inspection.fotosGerais?.length > 0 && (
+                <div className="rounded-2xl border-2 border-slate-400 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-100 border-b border-slate-300 text-sm font-black text-slate-800">
+                    Fotos gerais da carga • {inspection.fotosGerais.length}
+                  </div>
+                  <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {inspection.fotosGerais.map((foto, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setFotoAmpliada({ src: foto, titulo: `Foto geral ${i + 1}` })}
+                        className="rounded-xl overflow-hidden border border-slate-200 hover:border-amber-400 transition-colors"
+                      >
+                        <img src={foto} alt={`Foto geral ${i + 1}`} className="w-full aspect-[4/3] object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(inspection.fotoVeiculoFim || inspection.fotoLacre) && (
+                <div className="rounded-2xl border-2 border-slate-400 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-100 border-b border-slate-300 text-sm font-black text-slate-800">
+                    Fechamento • Lacre {inspection.numeroLacre || '—'}
+                  </div>
+                  <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {[
+                      { src: inspection.fotoVeiculoFim, titulo: 'Final da carga' },
+                      { src: inspection.fotoLacre, titulo: `Lacre ${inspection.numeroLacre || ''}`.trim() },
+                    ]
+                      .filter((x) => x.src)
+                      .map((x) => (
+                        <button
+                          key={x.titulo}
+                          type="button"
+                          onClick={() => setFotoAmpliada({ src: x.src as string, titulo: x.titulo })}
+                          className="relative rounded-xl overflow-hidden border border-slate-200 hover:border-amber-400 transition-colors"
+                        >
+                          <img src={x.src} alt={x.titulo} className="w-full aspect-[4/3] object-cover" />
+                          <span className="absolute top-2 left-2 text-[11px] font-black rounded-md bg-slate-900/75 text-white px-1.5 py-0.5">
+                            {x.titulo}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
                 </div>
               )}
             </div>
+            {fotoAmpliada && (
+              <div
+                className="fixed inset-0 z-[60] bg-slate-950/90 flex flex-col items-center justify-center p-4"
+                onClick={() => setFotoAmpliada(null)}
+              >
+                <img src={fotoAmpliada.src} alt={fotoAmpliada.titulo} className="max-w-full max-h-[80vh] rounded-xl object-contain" />
+                <p className="mt-3 text-sm font-bold text-white text-center">{fotoAmpliada.titulo}</p>
+                <button
+                  type="button"
+                  onClick={() => setFotoAmpliada(null)}
+                  className="mt-3 h-11 px-6 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm font-bold"
+                >
+                  Fechar foto
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

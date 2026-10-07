@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   ScanLine, 
   Camera, 
@@ -24,6 +24,7 @@ import {
   PlusCircle,
   Eye,
   Scissors,
+  Building2,
   ChevronDown
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -34,8 +35,14 @@ import {
   AppSettings,
   UserSession,
   MOTIVOS_CORTE,
+  descreverMotivoCorte,
+  notaPorCodigoCliente,
+  pendenciasRetornoPallet,
+  resumoRetornoPallet,
+  RetornoPallet,
   MotivoCorte,
   LoteQuantidade,
+  SheetRowDT,
 } from '../types';
 import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 import { CameraCapture } from './CameraCapture';
@@ -45,6 +52,7 @@ import { generateBookCarregamentoPdf } from '../services/pdfGenerator';
 import { playBeep } from '../services/sound';
 import { ListaNegraAlert, findListaNegra } from './ListaNegraAlert';
 import { SignaturePad } from './SignaturePad';
+import { ScrollButtonsRow } from './ScrollButtonsRow';
 
 interface LoadInspectionScreenProps {
   inspection: CargoInspection;
@@ -53,6 +61,7 @@ interface LoadInspectionScreenProps {
   onNavigateHome: () => void;
   onNavigateBilling: (inspection: CargoInspection) => void;
   settings: AppSettings;
+  sheetRowsDT?: SheetRowDT[];
   user: UserSession;
 }
 
@@ -63,12 +72,13 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   onNavigateHome,
   onNavigateBilling,
   settings,
+  sheetRowsDT = [],
   user,
 }) => {
   // Modal states
   const [showItemScannerModal, setShowItemScannerModal] = useState(false);
   const [showBarcodeCamera, setShowBarcodeCamera] = useState(false);
-  const [showCameraCapture, setShowCameraCapture] = useState<null | 'initial_truck' | 'cargo_pallet' | 'final_truck_seal'>(null);
+  const [showCameraCapture, setShowCameraCapture] = useState<null | 'initial_truck' | 'cargo_pallet' | 'final_truck_seal' | 'seal' | 'retorno_pallets' | 'retorno_controle'>(null);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showBookSummaryModal, setShowBookSummaryModal] = useState(false);
@@ -76,6 +86,34 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
 
   // Vehicle Plate & Lacre state
   const [placaInput, setPlacaInput] = useState(inspection.placa || '');
+  // Obrigatórios antes de conferir: placa válida e foto inicial do veículo
+  // Placa: padrão antigo LLLNNNN (ex.: ABC-1234) ou Mercosul LLLNLNN (ex.: BRA2E19)
+  const placaLimpa = placaInput.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  const placaPadrao = /^[A-Z]{3}[0-9]{4}$/.test(placaLimpa)
+    ? 'antigo'
+    : /^[A-Z]{3}[0-9][A-Z][0-9]{2}$/.test(placaLimpa)
+    ? 'mercosul'
+    : null;
+  const placaValida = placaPadrao !== null;
+  const pendRetorno = pendenciasRetornoPallet(inspection.retornoPallet);
+  const preConferenciaOk = placaValida && !!inspection.fotoVeiculoInicio && pendRetorno.length === 0;
+  // Seção do retorno de pallet: oculta automaticamente ~1,5s após ficar completa
+  const [retornoAberto, setRetornoAberto] = useState(pendRetorno.length > 0);
+  useEffect(() => {
+    if (pendRetorno.length > 0) {
+      setRetornoAberto(true);
+      return;
+    }
+    const t = setTimeout(() => setRetornoAberto(false), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inspection.retornoPallet]);
+  const atualizarRetorno = (parcial: Partial<RetornoPallet>) =>
+    onUpdateInspection({
+      ...inspection,
+      retornoPallet: { ...(inspection.retornoPallet || { possui: false }), ...parcial },
+    });
+  const [avisoPreConferencia, setAvisoPreConferencia] = useState(false);
   const [lacreInput, setLacreInput] = useState(inspection.numeroLacre || '');
   const [assinaturaConferente, setAssinaturaConferente] = useState<string | null>(inspection.assinaturaConferente || null);
 
@@ -86,6 +124,25 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   // New Item Entry Form State
   const [currentEan, setCurrentEan] = useState('');
   const [matchedSku, setMatchedSku] = useState<ProductDePara | null>(null);
+  // Cliente(s) e tipo(s) de carga da DT: dos itens planejados ou, nas cargas antigas, da LISTA DT
+  const linhasDaPlanilha = sheetRowsDT.filter((r) => r.dt.toUpperCase() === inspection.dt.toUpperCase());
+  const unicos = (lista: (string | undefined)[]) =>
+    Array.from(new Set(lista.map((x) => (x || '').trim()).filter(Boolean)));
+  const clientesDaCarga = unicos([
+    ...inspection.itensPlanejados.map((p) => p.cliente),
+    ...linhasDaPlanilha.map((r) => r.cliente),
+  ]);
+  const tiposDaCarga = unicos([
+    ...inspection.itensPlanejados.map((p) => p.tipoCarga),
+    ...linhasDaPlanilha.map((r) => r.tipoCarga),
+  ]);
+  // Leva o item lido para a área visível da linha de "Itens desta Carga"
+  useEffect(() => {
+    if (!matchedSku) return;
+    document
+      .querySelector('[data-chip-selected="true"]')
+      ?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, [matchedSku]);
   const [currentLote, setCurrentLote] = useState(replicatedLote);
   // Vários lotes na mesma leitura: quantidade do 1º lote + lotes adicionais
   const [currentLoteQtd, setCurrentLoteQtd] = useState(0);
@@ -107,6 +164,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   const [corteItemId, setCorteItemId] = useState<string | null>(null);
   const [corteQtd, setCorteQtd] = useState('');
   const [corteMotivo, setCorteMotivo] = useState<MotivoCorte | ''>('');
+  const [corteObs, setCorteObs] = useState('');
 
   // Helper to lookup EAN in De/Para Table
   // EAN digitado/bipado que não existe no De/Para (exibe aviso)
@@ -114,13 +172,32 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
 
   // Busca exata no De/Para (EAN ou SKU). Chamado a cada tecla: não cria produto
   // provisório — só reconhece quando o código bate com o cadastro.
+  // Produto de uma SKU desta carga: usa o De/Para; sem cadastro, monta a partir do item planejado
+  const produtoDaCarga = (code: string): ProductDePara | undefined => {
+    const c = code.trim().toUpperCase();
+    if (!c) return undefined;
+    const dp = settings.deParaList.find((item) => item.ean === c || item.sku.toUpperCase() === c);
+    if (dp) return dp;
+    const pl = inspection.itensPlanejados.find((p) => p.sku.toUpperCase() === c || (!!p.ean && p.ean === c));
+    if (!pl) return undefined;
+    return {
+      id: `plan-${pl.sku}`,
+      ean: pl.ean || '',
+      sku: pl.sku,
+      codigoCliente: pl.codigoCliente,
+      descricao: pl.descricao,
+      unidade: pl.unidade || 'CX',
+      embalagem: '',
+      lastroPadrao: pl.lastro,
+      camadaPadrao: pl.camada,
+    };
+  };
+
   const handleLookupEan = (eanCode: string, finalized = true) => {
     const clean = eanCode.trim();
     setCurrentEan(clean);
 
-    const found = clean
-      ? settings.deParaList.find((item) => item.ean === clean || item.sku.toUpperCase() === clean.toUpperCase())
-      : undefined;
+    const found = produtoDaCarga(clean);
 
     if (found) {
       if (found.id !== matchedSku?.id) playBeep('success', settings.beepSoundEnabled);
@@ -136,6 +213,12 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
 
   // Open Add Item modal
   const handleOpenAddItem = (prefillSku?: string) => {
+    if (!preConferenciaOk) {
+      setAvisoPreConferencia(true);
+      playBeep('error', settings.beepSoundEnabled);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return false;
+    }
     setEditingItemId(null);
     setItemPhotos([]);
     setItemObservacao('');
@@ -152,10 +235,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     setAccumulatorHistory([]);
 
     if (prefillSku) {
-      const match = settings.deParaList.find((x) => x.sku.toUpperCase() === prefillSku.toUpperCase());
+      const match = produtoDaCarga(prefillSku);
       if (match) {
-        setCurrentEan(match.ean);
+        setCurrentEan(match.ean || match.sku);
         setMatchedSku(match);
+        setEanNotFound(false);
         setShowItemScannerModal(true);
         return;
       }
@@ -218,7 +302,9 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   const lotesPreenchidos = !!currentLote.trim() && extraLotes.every((l) => l.lote.trim() && l.quantidade > 0) && currentLoteQtd > 0;
   const lotesOk = !isMultiLote || (lotesPreenchidos && lotesSomados === leituraQty);
 
-  const canSaveItem = !!matchedSku && leituraQty > 0 && lotesOk;
+  // Foto do pallet é obrigatória para registrar o item
+  const temFotoPallet = itemPhotos.length > 0;
+  const canSaveItem = !!matchedSku && leituraQty > 0 && lotesOk && temFotoPallet;
 
   const resetLotes = () => {
     setCurrentLoteQtd(0);
@@ -235,6 +321,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
       alert('Favor selecionar ou bipar um produto EAN válido.');
       return;
     }
+    if (!temFotoPallet) return;
 
     const calculatedQty = leituraQty;
 
@@ -332,12 +419,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     setCorteItemId(item.id);
     setCorteQtd(item.corteOperacional ? String(item.corteOperacional.quantidade) : '');
     setCorteMotivo(item.corteOperacional?.motivo || '');
+    setCorteObs(item.corteOperacional?.observacao || '');
   };
 
   const closeCorteForm = () => {
     setCorteItemId(null);
     setCorteQtd('');
     setCorteMotivo('');
+    setCorteObs('');
   };
 
   const setItemCorte = (itemId: string, corte: CheckedItem['corteOperacional']) => {
@@ -352,9 +441,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   const handleSaveCorte = () => {
     const qtd = parseInt(corteQtd, 10);
     if (!corteItemId || !qtd || qtd <= 0 || !corteMotivo) return;
+    if (corteMotivo === 'Outros' && !corteObs.trim()) return;
     setItemCorte(corteItemId, {
       quantidade: qtd,
       motivo: corteMotivo,
+      observacao: corteMotivo === 'Outros' ? corteObs.trim() : undefined,
       timestamp: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
     });
     closeCorteForm();
@@ -426,6 +517,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     const noteCli = note.cliente.toUpperCase();
     if (loadCliente && (noteCli === loadCliente.toUpperCase() || loadCliente.toUpperCase().includes(noteCli))) return true;
     if (inspection.dt.toUpperCase().includes(noteCli)) return true;
+    if (notaPorCodigoCliente(note, inspection.itensPlanejados)) return true;
     if (inspection.motorista && inspection.motorista.toUpperCase().includes(noteCli)) return true;
     if (noteCli === 'GERAL' || noteCli === 'PADRÃO / GERAL') return true;
     return false;
@@ -542,7 +634,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block">
-                Etapa 2 • Execução de Pátio
+                Etapa 4 • Execução de Pátio
               </span>
               <div className="flex items-center space-x-2">
                 <h2 className="text-lg sm:text-xl font-black font-mono text-white">{inspection.dt}</h2>
@@ -556,6 +648,37 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   {inspection.status === 'em_conferencia' ? 'Em Conferência' : 'Concluído'}
                 </span>
               </div>
+              {/* Cliente e Tipo de Carga (da carga ou, nas cargas antigas, da LISTA DT) */}
+              {(clientesDaCarga.length > 0 || tiposDaCarga.length > 0 || inspection.doca) && (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  {inspection.doca && (
+                    <span className="text-[11px] font-black uppercase tracking-wide rounded-md border px-2 py-0.5 bg-amber-500/20 text-amber-200 border-amber-400/40">
+                      {inspection.doca}
+                    </span>
+                  )}
+                  {clientesDaCarga.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-sm font-bold text-white">
+                      <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
+                      {clientesDaCarga.join(' • ')}
+                    </span>
+                  )}
+                  {tiposDaCarga.map((t) => {
+                    const tl = t.toLowerCase();
+                    const cor = tl.startsWith('palet')
+                      ? 'bg-blue-500/20 text-blue-200 border-blue-400/40'
+                      : tl.startsWith('estiv') || tl.startsWith('batid')
+                      ? 'bg-violet-500/20 text-violet-200 border-violet-400/40'
+                      : tl.startsWith('fracion')
+                      ? 'bg-amber-500/20 text-amber-200 border-amber-400/40'
+                      : 'bg-slate-700 text-slate-200 border-slate-600';
+                    return (
+                      <span key={t} className={`text-[11px] font-black uppercase tracking-wide rounded-md border px-2 py-0.5 ${cor}`}>
+                        {t}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -578,23 +701,45 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             <div className="flex-1 pr-2">
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center">
                 <Truck className="w-3 h-3 mr-1 text-amber-400" /> Placa do Veículo (Carga)
+                <span className="ml-1 text-rose-400">*</span>
               </label>
               <input
                 type="text"
                 value={placaInput}
                 onChange={(e) => {
-                  const val = e.target.value.toUpperCase();
+                  // aceita só letras/números (máx. 7); padrão antigo exibe com hífen (ABC-1234)
+                  const limpa = e.target.value.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 7);
+                  const val = /^[A-Z]{3}[0-9]{4}$/.test(limpa) ? `${limpa.slice(0, 3)}-${limpa.slice(3)}` : limpa;
                   setPlacaInput(val);
                   onUpdateInspection({ ...inspection, placa: val });
                 }}
-                placeholder="Ex: BRA-2E19"
-                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono font-black text-sm uppercase tracking-wider focus:outline-none focus:border-amber-400"
+                placeholder="ABC-1234 ou BRA2E19"
+                className={`w-full px-2.5 py-1.5 bg-slate-900 border-2 rounded-lg text-white font-mono font-black text-sm uppercase tracking-wider focus:outline-none focus:border-amber-400 ${
+                  placaValida ? 'border-emerald-500' : avisoPreConferencia ? 'border-rose-500' : 'border-slate-700'
+                }`}
               />
+              <span
+                className={`block mt-1 text-[10px] font-bold ${
+                  placaPadrao ? 'text-emerald-400' : placaLimpa ? 'text-rose-400' : 'text-slate-500'
+                }`}
+              >
+                {placaPadrao === 'antigo'
+                  ? '✓ Padrão antigo (LLL-NNNN)'
+                  : placaPadrao === 'mercosul'
+                  ? '✓ Padrão Mercosul (LLLNLNN)'
+                  : placaLimpa
+                  ? 'Placa inválida — use ABC-1234 ou BRA2E19'
+                  : 'Aceita padrão antigo ou Mercosul'}
+              </span>
             </div>
 
-            {/* Mercosul Plate Preview Tag */}
-            <div className="bg-white border-2 border-blue-600 rounded-md px-2.5 py-1 text-slate-900 font-mono font-black text-xs shadow-inner flex flex-col items-center">
-              <div className="w-full bg-blue-600 h-1 rounded-xs mb-0.5" />
+            {/* Plate Preview Tag (Mercosul azul / antiga cinza) */}
+            <div
+              className={`border-2 rounded-md px-2.5 py-1 font-mono font-black text-xs shadow-inner flex flex-col items-center ${
+                placaPadrao === 'antigo' ? 'bg-slate-200 border-slate-500 text-slate-900' : 'bg-white border-blue-600 text-slate-900'
+              }`}
+            >
+              <div className={`w-full h-1 rounded-xs mb-0.5 ${placaPadrao === 'antigo' ? 'bg-slate-500' : 'bg-blue-600'}`} />
               <span>{placaInput || 'PLACA'}</span>
             </div>
           </div>
@@ -604,6 +749,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center">
                 <Camera className="w-3 h-3 mr-1 text-amber-400" /> Foto Inicial do Veículo
+                <span className="ml-1 text-rose-400">*</span>
               </label>
               <p className="text-[11px] text-slate-400">
                 {inspection.fotoVeiculoInicio ? 'Foto registrada com sucesso' : 'Registre a frente/placa do veículo'}
@@ -642,6 +788,197 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
           </div>
         </div>
 
+        {/* Retorno de pallets (obrigatório antes de conferir) */}
+        {(() => {
+          const r = inspection.retornoPallet;
+          const fotoBox = (
+            chave: 'retorno_pallets' | 'retorno_controle',
+            titulo: string,
+            foto?: string
+          ) => (
+            <div className="space-y-1">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {titulo} <span className="text-rose-400">*</span>
+              </span>
+              {foto ? (
+                <div className="relative">
+                  <img
+                    src={foto}
+                    alt={titulo}
+                    onClick={() => setExpandedPhoto(foto)}
+                    className="w-full h-24 object-cover rounded-xl border border-slate-700 cursor-pointer"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCameraCapture(chave)}
+                    className="absolute top-1 right-1 px-2 py-1 rounded-lg bg-slate-900/80 text-[11px] font-bold text-white"
+                  >
+                    Trocar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowCameraCapture(chave)}
+                  className="w-full h-24 rounded-xl border-2 border-dashed border-slate-600 hover:border-amber-400 text-slate-300 text-xs font-bold flex flex-col items-center justify-center gap-1"
+                >
+                  <Camera className="w-5 h-5 text-amber-400" />
+                  Fotografar
+                </button>
+              )}
+            </div>
+          );
+          const opcao = (ativo: boolean, cor: string) =>
+            `h-11 rounded-xl border-2 text-sm font-black transition-colors ${ativo ? cor : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500'}`;
+          const completo = pendRetorno.length === 0;
+          if (completo && !retornoAberto) {
+            return (
+              <button
+                type="button"
+                onClick={() => setRetornoAberto(true)}
+                className="w-full mt-3 bg-slate-950/70 border border-emerald-600/50 rounded-2xl px-3 py-2.5 flex items-center gap-2 text-left hover:border-emerald-400 transition-colors"
+              >
+                <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Retorno de pallet</span>
+                  <span className="block text-sm font-black text-emerald-200 truncate">{resumoRetornoPallet(r)}</span>
+                </span>
+                <span className="shrink-0 flex items-center gap-1 text-xs font-bold text-slate-300">
+                  Exibir
+                  <ChevronDown className="w-4 h-4" />
+                </span>
+              </button>
+            );
+          }
+          return (
+            <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3 space-y-3 mt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Boxes className="w-4 h-4 text-amber-400" />
+                  A carga retornou com pallet? <span className="text-rose-400">*</span>
+                  {completo && (
+                    <button
+                      type="button"
+                      onClick={() => setRetornoAberto(false)}
+                      className="ml-1 px-2 py-1 rounded-lg border border-slate-700 hover:border-slate-500 text-[10px] font-bold text-slate-300 flex items-center gap-1 normal-case tracking-normal"
+                    >
+                      Ocultar
+                      <ChevronDown className="w-3.5 h-3.5 rotate-180" />
+                    </button>
+                  )}
+                </span>
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-56">
+                  <button
+                    type="button"
+                    onClick={() => onUpdateInspection({ ...inspection, retornoPallet: { possui: false } })}
+                    className={opcao(r?.possui === false, 'border-emerald-500 bg-emerald-500/20 text-emerald-200')}
+                  >
+                    Não
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => atualizarRetorno({ possui: true })}
+                    className={opcao(r?.possui === true, 'border-amber-500 bg-amber-500/20 text-amber-200')}
+                  >
+                    Sim
+                  </button>
+                </div>
+              </div>
+
+              {r?.possui && (
+                <div className="space-y-3 pt-2 border-t border-slate-800">
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Quantidade de pallets retornados <span className="text-rose-400">*</span>
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      inputMode="numeric"
+                      value={r.quantidade ?? ''}
+                      onChange={(e) => atualizarRetorno({ quantidade: e.target.value === '' ? undefined : Number(e.target.value) })}
+                      placeholder="Ex.: 12"
+                      className="w-full sm:w-40 h-11 px-3 bg-slate-900 border-2 border-slate-700 rounded-xl text-white font-mono font-black text-lg focus:outline-none focus:border-amber-400"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {fotoBox('retorno_pallets', 'Foto dos pallets', r.fotoPallets)}
+                    {fotoBox('retorno_controle', 'Controle de Recebimento', r.fotoControle)}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Situação dos pallets <span className="text-rose-400">*</span>
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => atualizarRetorno({ situacao: 'ok', quantidadeFaltando: undefined, quantidadeAvariados: undefined })}
+                        className={opcao(r.situacao === 'ok', 'border-emerald-500 bg-emerald-500/20 text-emerald-200')}
+                      >
+                        Todos OK
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => atualizarRetorno({ situacao: 'avariados', quantidadeFaltando: undefined })}
+                        className={opcao(r.situacao === 'avariados', 'border-amber-500 bg-amber-500/20 text-amber-200')}
+                      >
+                        Avariados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => atualizarRetorno({ situacao: 'faltando', quantidadeAvariados: undefined })}
+                        className={opcao(r.situacao === 'faltando', 'border-rose-500 bg-rose-500/20 text-rose-200')}
+                      >
+                        Faltando
+                      </button>
+                    </div>
+                  </div>
+
+                  {r.situacao === 'avariados' && (
+                    <label className="block">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        Quantos pallets estão avariados? <span className="text-rose-400">*</span>
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={r.quantidadeAvariados ?? ''}
+                        onChange={(e) =>
+                          atualizarRetorno({ quantidadeAvariados: e.target.value === '' ? undefined : Number(e.target.value) })
+                        }
+                        placeholder="Ex.: 3"
+                        className="w-full sm:w-40 h-11 px-3 bg-slate-900 border-2 border-amber-500/60 rounded-xl text-white font-mono font-black text-lg focus:outline-none focus:border-amber-400"
+                      />
+                    </label>
+                  )}
+
+                  {r.situacao === 'faltando' && (
+                    <label className="block">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        Quantos pallets estão faltando? <span className="text-rose-400">*</span>
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={r.quantidadeFaltando ?? ''}
+                        onChange={(e) =>
+                          atualizarRetorno({ quantidadeFaltando: e.target.value === '' ? undefined : Number(e.target.value) })
+                        }
+                        placeholder="Ex.: 2"
+                        className="w-full sm:w-40 h-11 px-3 bg-slate-900 border-2 border-rose-500/60 rounded-xl text-white font-mono font-black text-lg focus:outline-none focus:border-rose-400"
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Quantities Overview Ribbon */}
         <div className="grid grid-cols-4 gap-2 pt-1 text-center">
           <div className="bg-slate-800/80 rounded-xl p-2 border border-slate-700">
@@ -671,15 +1008,38 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
         </div>
       </div>
 
+      {/* Pendências obrigatórias antes de conferir */}
+      {!preConferenciaOk && (
+        <div
+          className={`p-3 rounded-2xl border-2 text-sm font-bold flex items-start gap-2 ${
+            avisoPreConferencia ? 'bg-rose-50 border-rose-400 text-rose-800 animate-pulse' : 'bg-amber-50 border-amber-300 text-amber-900'
+          }`}
+        >
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <span>
+            Antes de conferir:{' '}
+            {[
+              !placaValida && 'informe a placa do veículo',
+              !inspection.fotoVeiculoInicio && 'registre a foto inicial do veículo',
+              ...pendRetorno,
+            ]
+              .filter(Boolean)
+              .join('; ')}
+            .
+          </span>
+        </div>
+      )}
+
       {/* Prominent Action Bar: "BOTÃO ADICIONAR" (Abrir Câmera e Ler Código de Barra) */}
       <div className="flex flex-col sm:flex-row gap-2.5">
         <button
           type="button"
           onClick={() => {
-            handleOpenAddItem();
+            if (handleOpenAddItem() === false) return;
             setShowBarcodeCamera(true);
           }}
-          className="flex-1 min-w-0 px-3 py-4 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 active:scale-[0.99] text-slate-950 font-black rounded-2xl text-sm min-[400px]:text-base sm:text-lg flex items-center justify-center gap-2 sm:gap-3 shadow-xl shadow-amber-500/25 transition-all"
+          aria-disabled={!preConferenciaOk}
+          className="flex-1 min-w-0 px-3 py-4 aria-disabled:opacity-50 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 active:scale-[0.99] text-slate-950 font-black rounded-2xl text-sm min-[400px]:text-base sm:text-lg flex items-center justify-center gap-2 sm:gap-3 shadow-xl shadow-amber-500/25 transition-all"
         >
           <Camera className="w-6 h-6 text-slate-950 shrink-0" />
           <span className="text-center leading-tight">ADICIONAR / LER CÓDIGO DE BARRAS</span>
@@ -933,6 +1293,17 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                             </button>
                           ))}
                         </div>
+                        {corteMotivo === 'Outros' && (
+                          <input
+                            type="text"
+                            value={corteObs}
+                            onChange={(e) => setCorteObs(e.target.value)}
+                            placeholder="Descreva o motivo do corte (obrigatório)"
+                            maxLength={120}
+                            autoFocus
+                            className="mt-2 w-full h-11 px-3 bg-white border border-orange-300 rounded-xl text-sm focus:outline-none focus:border-orange-500"
+                          />
+                        )}
                       </div>
 
                       <div className="flex items-center justify-end gap-2">
@@ -955,7 +1326,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         <button
                           type="button"
                           onClick={handleSaveCorte}
-                          disabled={!(parseInt(corteQtd, 10) > 0) || !corteMotivo}
+                          disabled={!(parseInt(corteQtd, 10) > 0) || !corteMotivo || (corteMotivo === 'Outros' && !corteObs.trim())}
                           className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-colors"
                         >
                           Salvar corte
@@ -972,7 +1343,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         <Scissors className="w-3.5 h-3.5 shrink-0" />
                         <span className="font-black uppercase">Corte:</span>
                         <span className="font-mono font-bold">{item.corteOperacional.quantidade} vol.</span>
-                        <span className="truncate">• {item.corteOperacional.motivo}</span>
+                        <span className="truncate">• {descreverMotivoCorte(item.corteOperacional)}</span>
                       </span>
                       <span className="text-[10px] font-bold text-orange-700 uppercase shrink-0">Editar</span>
                     </button>
@@ -1111,8 +1482,11 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 {/* Resumo por SKU: planejado x carregado x diferença (toque para selecionar) */}
                 <div className="pt-1 space-y-1">
                   <span className="text-xs text-slate-400 font-bold">Itens desta Carga:</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                    {inspection.itensPlanejados.map((it) => {
+                  <ScrollButtonsRow>
+                    {inspection.itensPlanejados
+                      .filter((it, i, arr) => arr.findIndex((x) => x.sku === it.sku) === i)
+                      .sort((a, b) => a.sku.localeCompare(b.sku, 'pt-BR', { numeric: true }))
+                      .map((it) => {
                       const dp = settings.deParaList.find((x) => x.sku === it.sku);
                       const tot = getSkuTotals(it.sku, inspection.itensConferidos);
                       const dif = tot.excedente;
@@ -1121,9 +1495,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         <button
                           key={it.sku}
                           type="button"
+                          data-chip-selected={selected ? 'true' : undefined}
                           onClick={() => handleLookupEan(dp?.ean || it.sku)}
-                          className={`text-left px-2.5 py-1.5 rounded-lg border transition-colors ${
-                            selected
+                          className={`shrink-0 w-44 sm:w-48 text-left px-3 py-2 rounded-xl border transition-colors ${
+                            dif === 0
+                              ? selected
+                                ? 'bg-emerald-100 border-amber-400 ring-2 ring-amber-400'
+                                : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300'
+                              : selected
                               ? 'bg-amber-100 border-amber-400'
                               : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
                           }`}
@@ -1131,7 +1510,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span
-                              className={`text-lg font-mono font-black ${selected ? 'text-amber-900' : 'text-slate-500'}`}
+                              className={`text-lg font-mono font-black ${selected ? 'text-amber-900' : dif === 0 ? 'text-emerald-800' : 'text-slate-500'}`}
                             >
                               {it.sku}
                             </span>
@@ -1150,7 +1529,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         </button>
                       );
                     })}
-                  </div>
+                  </ScrollButtonsRow>
                 </div>
               </div>
 
@@ -1159,28 +1538,51 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 <div className="bg-amber-500/10 border-2 border-amber-400/60 rounded-2xl p-3.5 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-black uppercase tracking-wider text-amber-700">
-                      De/Para Reconhecido
+                      {matchedSku.id.startsWith('plan-') ? 'Item da Carga (sem De/Para)' : 'De/Para Reconhecido'}
                     </span>
                     <span className="text-sm font-mono font-bold text-slate-600">
                       {matchedSku.embalagem || 'Unidade Padrão'}
                     </span>
                   </div>
-                  {/* SKU em destaque (negrito) com descrição do produto */}
-                  <h4 className="text-2xl font-black font-mono text-slate-950 tracking-tight">
-                    {matchedSku.sku}
-                  </h4>
-                  <p className="text-sm font-semibold text-slate-700">{matchedSku.descricao}</p>
+                  {/* SKU em destaque com Lastro / Camada / Pallets / Quebra na mesma linha (Paletizado) */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <div className="min-w-0">
+                    <h4 className="text-2xl font-black font-mono text-slate-950 tracking-tight">{matchedSku.sku}</h4>
+                    <p className="text-sm font-semibold text-slate-700">{matchedSku.descricao}</p>
+                  </div>
+                  {(() => {
+                    const sku = matchedSku.sku.toUpperCase();
+                    const plan = inspection.itensPlanejados.find((p) => p.sku.toUpperCase() === sku);
+                    const row = sheetRowsDT.find((r) => r.dt.toUpperCase() === inspection.dt.toUpperCase() && r.sku.toUpperCase() === sku);
+                    const tipo = plan?.tipoCarga || row?.tipoCarga;
+                    if (!tipo?.toLowerCase().startsWith('palet')) return null;
+                    const fmt = (v?: number) => (v != null ? v.toLocaleString('pt-BR') : '—');
+                    return (
+                      <div className="flex-1 min-w-[16rem] grid grid-cols-4 gap-1.5 text-center">
+                        {[
+                          { rot: 'Lastro', val: plan?.lastro ?? row?.lastro },
+                          { rot: 'Camada', val: plan?.camada ?? row?.camada },
+                          { rot: 'Qtd Pallet', val: plan?.qtdPallet ?? row?.qtdPallet },
+                          { rot: 'Quebra Fardos', val: plan?.quebraFardos ?? row?.quebraFardos },
+                        ].map((c) => (
+                          <div key={c.rot} className="rounded-xl bg-white border border-amber-300 px-1 py-1.5">
+                            <span className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-amber-800 leading-tight">
+                              {c.rot}
+                            </span>
+                            <span className="block text-xl font-black font-mono text-slate-950">{fmt(c.val)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  </div>
                 </div>
               ) : eanNotFound ? (
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-sm text-rose-800 text-center">
                   <strong>EAN {currentEan} não cadastrado</strong> na tabela De/Para. Confira o código ou cadastre o
                   produto em Configuração.
                 </div>
-              ) : (
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500 text-center">
-                  Bipe o código de barras para carregar a SKU e a descrição do produto.
-                </div>
-              )}
+              ) : null}
 
               {/* LOTE Input with "Colar e replicar para próxima leitura" */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
@@ -1470,13 +1872,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <label className="text-sm font-bold text-slate-700 flex items-center">
                     <Camera className="w-3.5 h-3.5 mr-1 text-amber-500" />
                     Fotografar Carga / Pallet do SKU:
+                    <span className="ml-1.5 text-[11px] font-black uppercase text-rose-600">* Obrigatória</span>
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowCameraCapture('cargo_pallet')}
-                    className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1"
+                    className="shrink-0 h-10 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-black shadow-md shadow-blue-600/30 flex items-center gap-1.5 transition-all"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Camera className="w-4 h-4" />
                     <span>Nova Foto</span>
                   </button>
                 </div>
@@ -1505,10 +1908,14 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowCameraCapture('cargo_pallet')}
-                    className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-sm font-bold text-slate-600 flex items-center justify-center space-x-2 transition-colors"
+                    className={`w-full py-3 border-2 border-dashed rounded-xl text-sm font-bold flex items-center justify-center space-x-2 transition-colors ${
+                      matchedSku && leituraQty > 0
+                        ? 'bg-rose-50 hover:bg-rose-100 border-rose-400 text-rose-700 animate-pulse'
+                        : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-600'
+                    }`}
                   >
                     <Camera className="w-4 h-4 text-amber-500" />
-                    <span>Clique para Registrar Foto do Pallet</span>
+                    <span>Clique para Registrar Foto do Pallet (obrigatória)</span>
                   </button>
                 )}
               </div>
@@ -1554,7 +1961,9 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                     : 'Para registrar: informe o total de volumes.'
                   : !lotesPreenchidos
                   ? 'Para registrar: informe o número e a quantidade de cada lote.'
-                  : `Para registrar: a soma dos lotes (${lotesSomados}) deve ser igual ao total da leitura (${leituraQty}).`}
+                  : !lotesOk
+                  ? `Para registrar: a soma dos lotes (${lotesSomados}) deve ser igual ao total da leitura (${leituraQty}).`
+                  : 'Para registrar: tire a foto do pallet (obrigatória).'}
               </p>
             )}
 
@@ -1641,37 +2050,50 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                 </p>
               </div>
 
-              {/* Foto Final do Veículo */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 flex items-center">
-                  <Camera className="w-3.5 h-3.5 mr-1 text-blue-600" />
-                  Foto Final do Veículo (Traseira / Baú Carregado):
-                </label>
-                {inspection.fotoVeiculoFim ? (
-                  <div className="relative group inline-block">
-                    <img
-                      src={inspection.fotoVeiculoFim}
-                      alt="Foto Final"
-                      className="w-32 h-24 object-cover rounded-xl border border-slate-300"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCameraCapture('final_truck_seal')}
-                      className="mt-1 text-xs text-blue-600 font-bold hover:underline block"
-                    >
-                      Trocar foto
-                    </button>
+              {/* Fotos de fechamento: final da carga e lacre */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  {
+                    chave: 'final_truck_seal' as const,
+                    titulo: 'Foto Final da Carga',
+                    dica: 'Traseira / baú carregado',
+                    foto: inspection.fotoVeiculoFim,
+                  },
+                  { chave: 'seal' as const, titulo: 'Foto do Lacre', dica: 'Lacre instalado e legível', foto: inspection.fotoLacre },
+                ].map((c) => (
+                  <div key={c.chave} className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 flex items-center">
+                      <Camera className="w-3.5 h-3.5 mr-1 text-blue-600" />
+                      {c.titulo}:
+                    </label>
+                    {c.foto ? (
+                      <div>
+                        <img
+                          src={c.foto}
+                          alt={c.titulo}
+                          className="w-full aspect-[4/3] object-cover rounded-xl border border-slate-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCameraCapture(c.chave)}
+                          className="mt-1 text-xs text-blue-600 font-bold hover:underline"
+                        >
+                          Trocar foto
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowCameraCapture(c.chave)}
+                        className="w-full aspect-[4/3] max-h-36 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex flex-col items-center justify-center gap-1"
+                      >
+                        <Camera className="w-6 h-6 text-blue-600" />
+                        <span>Registrar {c.titulo}</span>
+                        <span className="text-[10px] font-semibold text-slate-400">{c.dica}</span>
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowCameraCapture('final_truck_seal')}
-                    className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center space-x-2"
-                  >
-                    <Camera className="w-4 h-4 text-blue-600" />
-                    <span>Registrar Foto Final do Veículo</span>
-                  </button>
-                )}
+                ))}
               </div>
 
               {/* Número do Lacre */}
@@ -1774,13 +2196,19 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             showCameraCapture === 'initial_truck'
               ? 'Foto do Veículo (Chegada)'
               : showCameraCapture === 'final_truck_seal'
-              ? 'Foto Traseira & Lacre'
+              ? 'Foto Final da Carga'
+              : showCameraCapture === 'seal'
+              ? 'Foto do Lacre'
+              : showCameraCapture === 'retorno_pallets'
+              ? 'Retorno: Foto dos Pallets'
+              : showCameraCapture === 'retorno_controle'
+              ? 'Retorno: Controle de Recebimento'
               : 'Foto do Pallet / Carga'
           }
           presetType={
             showCameraCapture === 'initial_truck'
               ? 'truck_front'
-              : showCameraCapture === 'final_truck_seal'
+              : showCameraCapture === 'final_truck_seal' || showCameraCapture === 'seal'
               ? 'truck_back_seal'
               : 'pallet_cargo'
           }
@@ -1791,6 +2219,12 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             } else if (showCameraCapture === 'final_truck_seal') {
               const up = { ...inspection, fotoVeiculoFim: dataUrl };
               onUpdateInspection(up);
+            } else if (showCameraCapture === 'seal') {
+              onUpdateInspection({ ...inspection, fotoLacre: dataUrl });
+            } else if (showCameraCapture === 'retorno_pallets') {
+              atualizarRetorno({ fotoPallets: dataUrl });
+            } else if (showCameraCapture === 'retorno_controle') {
+              atualizarRetorno({ fotoControle: dataUrl });
             } else if (showCameraCapture === 'cargo_pallet') {
               setItemPhotos([...itemPhotos, dataUrl]);
             }
@@ -1807,6 +2241,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
           inspection={inspection}
           recipients={inspection.emailStatus?.destinatarios || destinatariosCarga}
           empresaNome={settings.empresaNome}
+          unidadeCD={settings.unidadeCD}
+          clientNotes={settings.clientNotes}
           onClose={() => {
             setShowEmailModal(false);
             onNavigateHome();

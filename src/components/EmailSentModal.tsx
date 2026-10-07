@@ -1,7 +1,8 @@
 import React from 'react';
 import { Mail, CheckCircle2, Download, FileText, X, AlertTriangle } from 'lucide-react';
-import { CargoInspection } from '../types';
-import { generateBookCarregamentoPdf } from '../services/pdfGenerator';
+import { CargoInspection, ClientNote } from '../types';
+import { baixarBookCarregamentoPdf } from '../services/pdfGenerator';
+import { formatarDuracao } from '../services/tempo';
 
 interface EmailSentModalProps {
   type: 'carga' | 'faturamento';
@@ -9,6 +10,8 @@ interface EmailSentModalProps {
   recipients: string[];
   onClose: () => void;
   empresaNome?: string;
+  unidadeCD?: string;
+  clientNotes?: ClientNote[];
 }
 
 export const EmailSentModal: React.FC<EmailSentModalProps> = ({
@@ -17,8 +20,14 @@ export const EmailSentModal: React.FC<EmailSentModalProps> = ({
   recipients,
   onClose,
   empresaNome = 'LOGÍSTICA & DISTRIBUIÇÃO NACIONAL LTDA',
+  unidadeCD,
+  clientNotes = [],
 }) => {
   const isCarga = type === 'carga';
+  // Início, término e tempo total de carregamento
+  const inicioCarga = inspection.dataInicio;
+  const fimCarga = inspection.dataFim || new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  const tempoCarga = formatarDuracao(inicioCarga, fimCarga);
 
   // Calculate stats
   let totalPlan = 0;
@@ -29,10 +38,8 @@ export const EmailSentModal: React.FC<EmailSentModalProps> = ({
   const dif = totalCarreg - totalPlan;
   const isOk = dif === 0;
 
-  const handleDownloadPdf = () => {
-    const { doc, filename } = generateBookCarregamentoPdf(inspection, empresaNome);
-    doc.save(filename);
-  };
+  // Mesmo Book completo do botão "Baixar Book de Carregamento" (todas as informações e fotos)
+  const handleDownloadPdf = () => baixarBookCarregamentoPdf(inspection, empresaNome, unidadeCD, clientNotes);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
@@ -63,20 +70,6 @@ export const EmailSentModal: React.FC<EmailSentModalProps> = ({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-slate-700 text-xs sm:text-sm">
           {/* Metadata */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-            <div className="flex items-start">
-              <span className="w-24 font-bold text-slate-500 text-xs">Para (Grupo):</span>
-              <div className="flex-1 flex flex-wrap gap-1">
-                {recipients.map((email) => (
-                  <span
-                    key={email}
-                    className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-mono text-[11px]"
-                  >
-                    {email}
-                  </span>
-                ))}
-              </div>
-            </div>
-
             <div className="flex items-center">
               <span className="w-24 font-bold text-slate-500 text-xs">Assunto:</span>
               <span className="font-bold text-slate-800 text-xs">
@@ -90,6 +83,22 @@ export const EmailSentModal: React.FC<EmailSentModalProps> = ({
               <span className="w-24 font-bold text-slate-500 text-xs">Data/Hora:</span>
               <span className="text-slate-600 text-xs">{new Date().toLocaleString('pt-BR')}</span>
             </div>
+            {isCarga && (
+              <div className="mt-1 pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-white border border-slate-200 px-2 py-1.5">
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Início</span>
+                  <span className="block text-xs font-mono font-bold text-slate-800">{inicioCarga || '—'}</span>
+                </div>
+                <div className="rounded-lg bg-white border border-slate-200 px-2 py-1.5">
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Término</span>
+                  <span className="block text-xs font-mono font-bold text-slate-800">{fimCarga}</span>
+                </div>
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1.5">
+                  <span className="block text-[10px] font-bold uppercase text-emerald-700">Tempo total</span>
+                  <span className="block text-sm font-black text-emerald-800">{tempoCarga || '—'}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Email Content Summary Card */}

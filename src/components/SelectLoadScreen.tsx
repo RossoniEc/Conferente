@@ -15,13 +15,17 @@ import {
   CalendarDays,
   RefreshCw,
   X,
-  Building2
+  Building2,
+  Warehouse
 } from 'lucide-react';
-import { CargoInspection, PlannedItem, ProductDePara, SheetRowDT, UserSession, ClientNote, PlacaListaNegra } from '../types';
+import { CargoInspection, PlannedItem, ProductDePara, SheetRowDT, UserSession, ClientNote, PlacaListaNegra, notaPorCodigoCliente } from '../types';
 import { ListaNegraAlert } from './ListaNegraAlert';
+import { ScrollButtonsList } from './ScrollButtonsList';
 import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 import { playBeep } from '../services/sound';
 import { fetchSheetDT, localIsoDate } from '../services/sheetDt';
+
+const DOCAS = Array.from({ length: 15 }, (_, i) => `Doca ${String(i + 1).padStart(2, '0')}`);
 
 interface SelectLoadScreenProps {
   onLoadSelected: (inspection: CargoInspection) => void;
@@ -53,6 +57,9 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
   const [dtQuery, setDtQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'all' | 'dt' | 'placa'>('all');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Doca de carregamento (obrigatória para iniciar a conferência)
+  const [docaSel, setDocaSel] = useState('');
+  const [docaErro, setDocaErro] = useState(false);
 
   // Parsed or queried load preview
   const [previewLoad, setPreviewLoad] = useState<{
@@ -119,17 +126,18 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
   }, []);
 
   // DTs disponíveis (sem conferência), agrupadas por DT; filtro Hoje usa a coluna DATA da LISTA DT
-  const [filtroDts, setFiltroDts] = useState<'hoje' | 'todas'>('hoje');
+  const [filtroDts, setFiltroDts] = useState<'hoje' | 'atrasadas' | 'todas'>('hoje');
   const hojeIso = localIsoDate();
   const hojeBr = hojeIso.split('-').reverse().join('/');
-  type GrupoDt = { dt: string; placa: string; cliente?: string; motorista: string; data?: string; tipos: string[]; skus: number; volume: number };
+  type GrupoDt = { dt: string; placa: string; cliente?: string; motorista: string; data?: string; remessa?: string; tipos: string[]; skus: number; volume: number };
   const dtsDisponiveis = Array.from(
     availableSheetRows
       .reduce((map, r) => {
-        const g = map.get(r.dt) || { dt: r.dt, placa: r.placa, cliente: r.cliente, motorista: r.motorista, data: r.dataAgendamento, tipos: [], skus: 0, volume: 0 };
+        const g = map.get(r.dt) || { dt: r.dt, placa: r.placa, cliente: r.cliente, motorista: r.motorista, data: r.dataAgendamento, remessa: r.remessa, tipos: [], skus: 0, volume: 0 };
         g.skus += 1;
         g.volume += r.quantidade;
-        if (!g.data && r.dataAgendamento) g.data = r.dataAgendamento;
+        // DT com SKUs em datas diferentes: vale a data mais recente (reagendamento)
+        if (r.dataAgendamento && (!g.data || r.dataAgendamento > g.data)) g.data = r.dataAgendamento;
         if (r.tipoCarga && !g.tipos.includes(r.tipoCarga)) g.tipos.push(r.tipoCarga);
         map.set(r.dt, g);
         return map;
@@ -141,6 +149,12 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
     return peso(x).localeCompare(peso(y)) || x.dt.localeCompare(y.dt);
   });
   const agendadasHoje = dtsDisponiveis.filter((g) => g.data === hojeIso);
+  // Atrasadas: DATA anterior a hoje e conferência ainda não iniciada (mais antigas primeiro)
+  const dtsAtrasadas = dtsDisponiveis
+    .filter((g) => g.data && g.data < hojeIso)
+    .sort((a, b) => (a.data || '').localeCompare(b.data || '') || a.dt.localeCompare(b.dt));
+  const diasAtraso = (data?: string) =>
+    data ? Math.round((new Date(hojeIso + 'T00:00:00').getTime() - new Date(data + 'T00:00:00').getTime()) / 86_400_000) : 0;
   // Pesquisa por DT ou Placa (ignora traço/espaço); com texto, procura em todas as disponíveis
   const [buscaLista, setBuscaLista] = useState('');
   const termoBusca = buscaLista.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -153,8 +167,10 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
       )
     : filtroDts === 'hoje'
     ? agendadasHoje
+    : filtroDts === 'atrasadas'
+    ? dtsAtrasadas
     : dtsDisponiveis;
-  const mostrarData = buscando || filtroDts === 'todas';
+  const mostrarData = buscando || filtroDts !== 'hoje';
   const jaIniciadasHoje = new Set(
     sheetRowsDT.filter((r) => r.dataAgendamento === hojeIso && findInspection(r.dt)).map((r) => r.dt)
   ).size;
@@ -174,7 +190,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
     const t = tipo.toLowerCase();
     const cor = t.startsWith('palet')
       ? dark ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-blue-50 text-blue-700 border-blue-200'
-      : t.startsWith('batid')
+      : t.startsWith('batid') || t.startsWith('estiv')
       ? dark ? 'bg-violet-500/20 text-violet-300 border-violet-500/40' : 'bg-violet-50 text-violet-700 border-violet-200'
       : t.startsWith('fracion')
       ? dark ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-amber-50 text-amber-800 border-amber-200'
@@ -187,6 +203,8 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
     Array.from(new Set(sheetRowsDT.filter((r) => r.dt === dt && r.tipoCarga).map((r) => r.tipoCarga as string)));
 
   const abrirDtAgendada = (dt: string) => {
+    setDocaSel('');
+    setDocaErro(false);
     handleSearchDt(dt, 'dt');
   };
 
@@ -354,8 +372,15 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
         quantidadePlanejada: m.quantidade,
         ean: dp?.ean,
         cliente: m.cliente,
+        tipoCarga: m.tipoCarga,
+        lastro: m.lastro,
+        camada: m.camada,
+        qtdPallet: m.qtdPallet,
+        quebraFardos: m.quebraFardos,
       };
     });
+    // SKUs em ordem crescente (numérica quando o código é número)
+    items.sort((a, b) => a.sku.localeCompare(b.sku, 'pt-BR', { numeric: true }));
 
     setPreviewLoad({
       dt: first.dt,
@@ -370,6 +395,11 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
   // Handle Confirm and Start Inspection
   const handleStartInspection = () => {
     if (!previewLoad) return;
+    if (!docaSel) {
+      setDocaErro(true);
+      playBeep('error', soundEnabled);
+      return;
+    }
 
     // DT que já avançou de etapa não reabre por aqui
     const jaIniciada = stageMessage(previewLoad.dt);
@@ -384,8 +414,9 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
       id: `INSP-${previewLoad.dt.replace(/[^a-zA-Z0-9]/g, '')}`,
       dt: previewLoad.dt,
       placa: previewLoad.placa,
-      motorista: previewLoad.motorista || 'Motorista Não Informado',
-      transportadora: previewLoad.transportadora || 'Transportadora Padrão',
+      doca: docaSel,
+      motorista: previewLoad.motorista || '',
+      transportadora: previewLoad.transportadora || '',
       status: 'em_conferencia',
       dataInicio: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
       conferente: user.name,
@@ -453,7 +484,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
         <div>
           <span className="text-[11px] font-black uppercase tracking-wider text-blue-600 block">
-            Etapa 1 • Planejamento
+            Etapa 3 • Planejamento
           </span>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center space-x-2">
             <QrCode className="w-6 h-6 text-blue-600" />
@@ -479,6 +510,8 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
                     <span className="sm:hidden">DTs de Hoje</span>
                     <span className="hidden sm:inline">DTs Agendadas para Hoje</span>
                   </>
+                ) : filtroDts === 'atrasadas' ? (
+                  'DTs Atrasadas'
                 ) : (
                   'DTs Disponíveis'
                 )}
@@ -512,7 +545,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
         </div>
 
         {/* Filtro Hoje / Todas */}
-        <div className={`grid grid-cols-2 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold ${buscando ? 'opacity-50' : ''}`}>
+        <div className={`grid grid-cols-3 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold ${buscando ? 'opacity-50' : ''}`}>
           <button
             type="button"
             onClick={() => setFiltroDts('hoje')}
@@ -524,12 +557,26 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => setFiltroDts('atrasadas')}
+            className={`h-9 rounded-lg transition-all ${
+              filtroDts === 'atrasadas'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : dtsAtrasadas.length > 0
+                ? 'text-rose-600 hover:text-rose-800'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Atrasadas ({dtsAtrasadas.length})
+          </button>
+          <button
+            type="button"
             onClick={() => setFiltroDts('todas')}
             className={`h-9 rounded-lg transition-all ${
               filtroDts === 'todas' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            Todas Disponíveis ({dtsDisponiveis.length})
+            <span className="sm:hidden">Todas ({dtsDisponiveis.length})</span>
+            <span className="hidden sm:inline">Todas Disponíveis ({dtsDisponiveis.length})</span>
           </button>
         </div>
 
@@ -587,12 +634,19 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
                         className={`text-[11px] font-bold rounded-md px-1.5 py-0.5 whitespace-nowrap ${
                           g.data === hojeIso
                             ? 'bg-emerald-100 text-emerald-800'
+                            : g.data && g.data < hojeIso
+                            ? 'bg-rose-100 text-rose-700'
                             : g.data
                             ? 'bg-slate-100 text-slate-600'
                             : 'bg-amber-50 text-amber-700'
                         }`}
                       >
                         {g.data === hojeIso ? 'Hoje' : g.data ? g.data.split('-').reverse().join('/') : 'Sem data'}
+                      </span>
+                    )}
+                    {g.data && g.data < hojeIso && (
+                      <span className="text-[11px] font-black rounded-md px-1.5 py-0.5 whitespace-nowrap bg-rose-600 text-white">
+                        {diasAtraso(g.data)} dia{diasAtraso(g.data) > 1 ? 's' : ''} de atraso
                       </span>
                     )}
                   </span>
@@ -603,7 +657,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
                     </span>
                   )}
                   <span className="block text-xs text-slate-500 truncate">
-                    {g.placa} • {g.skus} SKU{g.skus > 1 ? 's' : ''}
+                    {[g.placa, g.remessa ? `Remessa ${g.remessa}` : '', `${g.skus} SKU${g.skus > 1 ? 's' : ''}`].filter(Boolean).join(' • ')}
                   </span>
                 </span>
                 <span className="text-xs font-black font-mono text-slate-900 bg-slate-50 border border-slate-200 rounded-md px-2 py-0.5 whitespace-nowrap">
@@ -626,6 +680,8 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
                 <>
                   Nenhuma DT pendente agendada para hoje. Preencha a coluna <strong>DATA</strong> da planilha com {hojeBr}.
                 </>
+              ) : filtroDts === 'atrasadas' ? (
+                'Nenhuma DT em atraso.'
               ) : (
                 'Nenhuma DT disponível na planilha "LISTA DT".'
               )}
@@ -683,7 +739,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
             {/* License plate Mercosul style badge */}
             <div className="bg-white text-slate-900 px-3 py-1 rounded-lg border-2 border-blue-600 font-mono font-black text-sm shadow-sm flex items-center space-x-1.5">
               <span className="w-2.5 h-2.5 bg-blue-600 rounded-full" />
-              <span>{previewLoad.placa}</span>
+              <span>{previewLoad.placa || 'Placa a informar'}</span>
             </div>
           </div>
 
@@ -699,11 +755,11 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
             </div>
             <div>
               <span className="text-slate-400 block">Motorista:</span>
-              <span className="font-bold text-slate-200">{previewLoad.motorista || 'Severino Silva'}</span>
+              <span className="font-bold text-slate-200">{previewLoad.motorista || 'Não informado'}</span>
             </div>
             <div>
               <span className="text-slate-400 block">Transportadora:</span>
-              <span className="font-bold text-slate-200">{previewLoad.transportadora || 'TransLog Brasil S/A'}</span>
+              <span className="font-bold text-slate-200">{previewLoad.transportadora || 'Não informada'}</span>
             </div>
             <div>
               <span className="text-slate-400 block">Total de Itens:</span>
@@ -731,6 +787,7 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
               const cli = n.cliente.toUpperCase();
               if (previewCliente && (cli === previewCliente.toUpperCase() || previewCliente.toUpperCase().includes(cli))) return true;
               if (previewLoad.dt.toUpperCase().includes(cli)) return true;
+              if (notaPorCodigoCliente(n, previewLoad.items)) return true;
               if (cli === 'GERAL' || cli === 'PADRÃO / GERAL') return true;
               return false;
             });
@@ -761,30 +818,96 @@ export const SelectLoadScreen: React.FC<SelectLoadScreenProps> = ({
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
               Relação de SKUs Planejados ({previewLoad.items.length})
             </span>
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-              {previewLoad.items.map((item) => (
+            <ScrollButtonsList maxHeightClass="max-h-60">
+              <div className="space-y-1.5">
+              {[...previewLoad.items]
+                .sort((a, b) => a.sku.localeCompare(b.sku, 'pt-BR', { numeric: true }))
+                .map((item, idx) => (
                 <div
-                  key={item.sku}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-800/80 text-xl border border-slate-700/50"
+                  key={`${item.sku}-${idx}`}
+                  className="p-2.5 sm:p-3 rounded-2xl bg-slate-800/80 border border-slate-700/50 space-y-1"
                 >
-                  <div className="min-w-0 pr-2">
-                    <span className="font-bold font-mono text-amber-400 text-lg sm:text-xl block truncate">{item.sku}</span>
-                    <span className="text-slate-300 text-sm sm:text-base truncate block">{item.descricao}</span>
+                  <div className="flex items-center gap-2 sm:gap-3">
+                  {/* SKU */}
+                  <div className="min-w-0 w-20 sm:w-28 shrink-0">
+                    <span className="font-bold font-mono text-amber-400 text-base sm:text-xl block truncate">{item.sku}</span>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className="text-2xl sm:text-3xl font-black text-white">{item.quantidadePlanejada}</span>
-                    <span className="text-xs sm:text-sm text-slate-400 block font-semibold">planejados</span>
+                  {/* Paletizado: Lastro x Camada x Pallets + Quebra de fardos, na mesma linha */}
+                  {item.tipoCarga?.toLowerCase().startsWith('palet') ? (
+                    <div className="flex-1 min-w-0 grid grid-cols-4 gap-1 text-center">
+                      {[
+                        { rot: 'Lastro', nome: 'Lastro', val: item.lastro },
+                        { rot: 'Camada', nome: 'Camada', val: item.camada },
+                        { rot: 'Pallets', nome: 'Quantidade de Pallets', val: item.qtdPallet },
+                        { rot: 'Quebra', nome: 'Quebra de Fardos', val: item.quebraFardos },
+                      ].map((c) => (
+                        <div
+                          key={c.rot}
+                          title={c.nome}
+                          className="min-w-0 rounded-lg bg-slate-900/80 border border-blue-500/30 px-0.5 py-0.5"
+                        >
+                          <span className="block text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-blue-300 leading-tight truncate">
+                            {c.rot}
+                          </span>
+                          <span className="block text-sm sm:text-base font-black font-mono text-white leading-snug">
+                            {c.val != null ? c.val.toLocaleString('pt-BR') : '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    /* Sem quadros de pallet: a descrição completa ocupa o meio da linha */
+                    <p className="flex-1 min-w-0 text-slate-300 text-xs sm:text-sm leading-snug break-words">{item.descricao}</p>
+                  )}
+                  {/* Quantidade planejada */}
+                  <div className="text-right shrink-0">
+                    <span className="text-xl sm:text-3xl font-black text-white leading-none block">{item.quantidadePlanejada}</span>
+                    <span className="text-[10px] sm:text-xs text-slate-400 block font-semibold">planejados</span>
                   </div>
+                  </div>
+                  {/* Paletizado: descrição completa na linha de baixo */}
+                  {item.tipoCarga?.toLowerCase().startsWith('palet') && (
+                    <p className="text-slate-300 text-xs sm:text-sm leading-snug break-words">{item.descricao}</p>
+                  )}
                 </div>
               ))}
-            </div>
+              </div>
+            </ScrollButtonsList>
+          </div>
+
+          {/* Doca de carregamento (obrigatória) */}
+          <div className="space-y-1.5">
+            <label htmlFor="doca-carregamento" className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <Warehouse className="w-4 h-4 text-amber-400" />
+              Doca de carregamento <span className="text-rose-400">*</span>
+            </label>
+            <select
+              id="doca-carregamento"
+              value={docaSel}
+              onChange={(e) => {
+                setDocaSel(e.target.value);
+                setDocaErro(false);
+              }}
+              className={`w-full h-12 px-3 rounded-xl bg-slate-800 text-white text-base font-bold border-2 focus:outline-none ${
+                docaErro ? 'border-rose-500' : docaSel ? 'border-emerald-500' : 'border-slate-600 focus:border-amber-400'
+              }`}
+            >
+              <option value="">Selecione a doca…</option>
+              {DOCAS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            {docaErro && <p className="text-xs font-bold text-rose-400">Selecione a doca para iniciar a conferência.</p>}
           </div>
 
           {/* Start Inspection CTA */}
           <button
             type="button"
             onClick={handleStartInspection}
-            className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.99] text-slate-950 font-black rounded-2xl text-sm sm:text-base flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/25 transition-all"
+            disabled={!docaSel}
+            className="w-full py-3.5 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.99] text-slate-950 font-black rounded-2xl text-sm sm:text-base flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/25 transition-all"
           >
             <span>INICIAR CONFERÊNCIA DE CARGA</span>
             <ArrowRight className="w-5 h-5" />

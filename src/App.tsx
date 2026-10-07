@@ -14,6 +14,7 @@ import {
 } from './types';
 import { storageService } from './services/storage';
 import { playBeep } from './services/sound';
+import { fetchSheetDT } from './services/sheetDt';
 import { Navbar } from './components/Navbar';
 import { LoginScreen } from './components/LoginScreen';
 import { HomeScreen } from './components/HomeScreen';
@@ -23,6 +24,8 @@ import { LoadInspectionScreen } from './components/LoadInspectionScreen';
 import { BillingInspectionScreen } from './components/BillingInspectionScreen';
 import { SettingsScreen } from './components/SettingsScreen';
 import { HistoryScreen } from './components/HistoryScreen';
+import { StorageScreen } from './components/StorageScreen';
+import { PickingScreen } from './components/PickingScreen';
 
 export default function App() {
   const [user, setUser] = useState<UserSession | null>(() => {
@@ -75,6 +78,25 @@ export default function App() {
   useEffect(() => {
     storageService.saveSheetDT(sheetRowsDT);
   }, [sheetRowsDT]);
+
+  // LISTA DT sempre atual em todas as telas: sincroniza ao abrir o app e a cada 1 minuto (falhas são silenciosas)
+  const sheetDtUrl = settings.googleSheetListaDTUrl;
+  const deParaRef = React.useRef(settings.deParaList);
+  deParaRef.current = settings.deParaList;
+  useEffect(() => {
+    if (!sheetDtUrl) return;
+    let ativo = true;
+    const sync = () =>
+      fetchSheetDT(sheetDtUrl, deParaRef.current)
+        .then((rows) => ativo && setSheetRowsDT(rows))
+        .catch(() => undefined);
+    sync();
+    const timer = window.setInterval(sync, 60_000);
+    return () => {
+      ativo = false;
+      window.clearInterval(timer);
+    };
+  }, [sheetDtUrl]);
 
   useEffect(() => {
     storageService.saveSheetFAT(sheetRowsFAT);
@@ -223,6 +245,18 @@ export default function App() {
             availableDtCount={availableDtCount}
             availableVolume={availableVolume}
             skuCount={settings.deParaList.length}
+            sheetRowsDT={sheetRowsDT}
+          />
+        )}
+
+        {currentTab === 'storage' && <StorageScreen deParaList={settings.deParaList} soundEnabled={soundEnabled} />}
+
+        {currentTab === 'picking' && (
+          <PickingScreen
+            sheetRowsDT={sheetRowsDT}
+            inspections={inspections}
+            deParaList={settings.deParaList}
+            soundEnabled={soundEnabled}
           />
         )}
 
@@ -263,6 +297,7 @@ export default function App() {
               onNavigateHome={() => setCurrentTab('home')}
               onNavigateBilling={handleNavigateBilling}
               settings={settings}
+              sheetRowsDT={sheetRowsDT}
               user={user}
             />
           ) : (
@@ -273,7 +308,7 @@ export default function App() {
             listaNegra={settings.listaNegra}
               onSelectInspection={handleSelectFromList}
               onNavigateNewLoad={() => setCurrentTab('select_load')}
-              headerTag="Tópico 2 • Execução de Pátio"
+              headerTag="Tópico 4 • Execução de Pátio"
               title="Conferência de Carga — Selecione a DT"
               mode="em_processo"
             />

@@ -16,36 +16,90 @@ const toIsoDate = (raw: string): string => {
   return iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : '';
 };
 
-// Converte o CSV da planilha "LISTA DT" em linhas planejadas
+// Número no formato BR: "1.234" (milhar) / "1.234,5" / "15,025"; vazio ou "-" = não informado
+const parseNum = (txt: string | undefined): number | undefined => {
+  let raw = (txt || '').replace(/[^\d,.-]/g, '');
+  if (!raw || raw === '-') return undefined;
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(raw)) raw = raw.replace(/\./g, '');
+  const n = parseFloat(raw.replace(',', '.'));
+  return Number.isFinite(n) ? n : undefined;
+};
+
+// Título da coluna sem acento, em minúsculas e com espaços simples ("Data para Expedição" -> "data para expedicao")
+const normalizaTitulo = (c: string) =>
+  c
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/["']/g, '')
+    .replace(/\s+/g, ' ');
+
+// Converte o CSV da planilha "LISTA DT" em linhas planejadas.
+// Aceita o modelo antigo (DT, PLACA, SKU, QUANTIDADE, TIPO, LASTRO, CAMADA, QUANTIDADE PALLET, QUEBRA FARDOS, DATA)
+// e o novo (CODIGO DO CLIENTE, CLIENTE, OV, SKU, DESCRICAO, QTDE REMESSA, QTDE PALETES, Tipo de Carga,
+// Categoria, REMESSA, DT TRANSPORTE, Data para Expedicao).
 export const parseCsvToSheetDT = (csvText: string, deParaList: ProductDePara[] = []): SheetRowDT[] => {
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length === 0) return [];
 
   const first = lines[0];
   const sep = first.includes(';') ? ';' : first.includes('\t') ? '\t' : ',';
-  const header = splitCsvLine(first, sep).map((c) => c.trim().toLowerCase().replace(/["']/g, ''));
+  const header = splitCsvLine(first, sep).map(normalizaTitulo);
 
-  // "Código do Cliente" vem primeiro para não ser confundido com a coluna de SKU (código) nem de cliente
-  const codCliIdx = header.findIndex((h) => (h.includes('cod') || h.includes('códig')) && h.includes('client'));
-  const idx = (test: (h: string) => boolean) => header.findIndex((h, i) => i !== codCliIdx && test(h));
+  // Cada campo pega a primeira coluna que atende ao teste e ainda não foi usada por outro campo
+  const usados = new Set<number>();
+  const col = (...tests: ((h: string) => boolean)[]) => {
+    for (const test of tests) {
+      const i = header.findIndex((h, k) => !usados.has(k) && test(h));
+      if (i >= 0) {
+        usados.add(i);
+        return i;
+      }
+    }
+    return -1;
+  };
 
-  let dtIdx = idx((h) => h.includes('dt') || h.includes('doc') || h.includes('transporte'));
-  let skuIdx = idx((h) => h.includes('sku') || h.includes('item') || h.includes('código') || h.includes('cod'));
-  let qtdIdx = header.findIndex((h) => h.includes('qtd') || h.includes('quant') || h.includes('volume') || h.includes('planej'));
-  let placaIdx = header.findIndex((h) => h.includes('placa') || h.includes('veic') || h.includes('carro'));
-  const motIdx = header.findIndex((h) => h.includes('motor') || h.includes('condutor'));
-  const transpIdx = header.findIndex((h) => h.includes('transp') || h.includes('empresa'));
-  const descIdx = header.findIndex((h) => h.includes('desc') || h.includes('prod') || h.includes('nome'));
-  const cliIdx = idx((h) => h.includes('client') || h.includes('destinat') || h.includes('loja'));
-  const tipoIdx = header.findIndex((h) => h === 'tipo' || h.startsWith('tipo ') || h.includes('tipo de carga') || h.includes('tipo carga'));
-  const dataIdx = header.findIndex((h) => h.startsWith('data') || h.includes('agend') || h.includes('entrega'));
+  const codCliIdx = col((h) => h.includes('cod') && h.includes('client'));
+  let dtIdx = col(
+    (h) => h === 'dt' || h.startsWith('dt '),
+    (h) => h.includes('transporte') && !h.includes('transportad'),
+    (h) => h.includes('doc')
+  );
+  let skuIdx = col(
+    (h) => h.includes('sku'),
+    (h) => h.includes('item'),
+    (h) => h.includes('cod')
+  );
+  const palletIdx = col((h) => h.includes('pallet') || h.includes('palete'));
+  let qtdIdx = col(
+    (h) => h.includes('remessa') && (h.includes('qtd') || h.includes('quant')),
+    (h) => h === 'quantidade' || h === 'qtd' || h === 'qtde',
+    (h) => h.includes('qtd') || h.includes('quant') || h.includes('volume') || h.includes('planej')
+  );
+  const remessaIdx = col((h) => h.includes('remessa'));
+  const ovIdx = col((h) => h === 'ov' || h.startsWith('ov ') || h.includes('ordem de venda') || h === 'pedido');
+  const categoriaIdx = col((h) => h.includes('categoria'));
+  const tipoIdx = col((h) => h === 'tipo' || h.startsWith('tipo '));
+  const dataIdx = col((h) => h.startsWith('data') || h.includes('agend') || h.includes('expedi') || h.includes('entrega'));
+  let placaIdx = col((h) => h.includes('placa') || h.includes('veic') || h.includes('carro'));
+  const motIdx = col((h) => h.includes('motor') || h.includes('condutor'));
+  const transpIdx = col((h) => h.includes('transportad') || h.includes('empresa'));
+  const descIdx = col((h) => h.includes('desc'), (h) => h.includes('prod') || h.includes('nome'));
+  const cliIdx = col((h) => h.includes('client') || h.includes('destinat') || h.includes('loja'));
+  const lastroIdx = col((h) => h.includes('lastro'));
+  const camadaIdx = col((h) => h.includes('camada'));
+  const quebraIdx = col((h) => h.includes('quebra'));
 
   const hasHeader = dtIdx >= 0 || skuIdx >= 0 || qtdIdx >= 0;
   const startRow = hasHeader ? 1 : 0;
-  if (dtIdx < 0) dtIdx = 0;
-  if (placaIdx < 0) placaIdx = 1;
-  if (skuIdx < 0) skuIdx = 2;
-  if (qtdIdx < 0) qtdIdx = 3;
+  // Sem cabeçalho: ordem fixa DT, PLACA, SKU, QUANTIDADE
+  if (!hasHeader) {
+    dtIdx = 0;
+    placaIdx = 1;
+    skuIdx = 2;
+    qtdIdx = 3;
+  }
 
   const hoje = localIsoDate();
   const parsedRows: SheetRowDT[] = [];
@@ -54,26 +108,28 @@ export const parseCsvToSheetDT = (csvText: string, deParaList: ProductDePara[] =
     const cols = splitCsvLine(lines[i], sep);
     if (cols.length < 2) continue;
 
-    const dt = cols[dtIdx] || `DT-${i}`;
-    const sku = cols[skuIdx] || '';
-    if (!sku) continue;
+    const texto = (k: number) => (k >= 0 && cols[k] ? cols[k] : undefined);
+    const num = (k: number) => (k >= 0 ? parseNum(cols[k]) : undefined);
 
-    const rawQtd = cols[qtdIdx]?.replace(/[^\d.,]/g, '').replace(',', '.') || '0';
-    const quantidade = Math.round(parseFloat(rawQtd)) || 0;
-    const placa = cols[placaIdx] || 'FDR-9087';
-    const motorista = motIdx >= 0 && cols[motIdx] ? cols[motIdx] : 'Severino Silva';
-    const transportadora = transpIdx >= 0 && cols[transpIdx] ? cols[transpIdx] : 'TransLog Brasil S/A';
-    const descricao = descIdx >= 0 && cols[descIdx] ? cols[descIdx] : `Produto ${sku}`;
-    const cliente = cliIdx >= 0 && cols[cliIdx] ? cols[cliIdx] : cols.find((c) => c.toUpperCase().includes('BRAMIL')) ? 'BRAMIL' : undefined;
+    const sku = texto(skuIdx) || '';
+    if (!sku) continue;
+    const dt = texto(dtIdx) || `DT-${i}`;
+
+    const quantidade = Math.round(num(qtdIdx) || 0);
+    // Modelo novo não traz placa/motorista/transportadora: ficam em branco (a placa é informada na conferência)
+    const placa = texto(placaIdx) || '';
+    const motorista = texto(motIdx) || '';
+    const transportadora = texto(transpIdx) || '';
+    const descricao = texto(descIdx) || `Produto ${sku}`;
+    const cliente = texto(cliIdx);
     // Código do Cliente: coluna da planilha ou, na falta dela, o cadastrado no De/Para para o SKU
     const codigoCliente =
-      (codCliIdx >= 0 && cols[codCliIdx]) ||
-      deParaList.find((p) => p.sku.toUpperCase() === sku.toUpperCase())?.codigoCliente ||
-      undefined;
+      texto(codCliIdx) || deParaList.find((p) => p.sku.toUpperCase() === sku.toUpperCase())?.codigoCliente || undefined;
     // Tipo normalizado: "PALETIZADO" -> "Paletizado"
-    const tipoRaw = tipoIdx >= 0 ? (cols[tipoIdx] || '').trim() : '';
+    const tipoRaw = (texto(tipoIdx) || '').trim();
     const tipoCarga = tipoRaw ? tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1).toLowerCase() : undefined;
-    const dataAgendamento = dataIdx >= 0 && cols[dataIdx] ? toIsoDate(cols[dataIdx]) || undefined : undefined;
+    const dataRaw = texto(dataIdx);
+    const dataAgendamento = dataRaw ? toIsoDate(dataRaw) || undefined : undefined;
 
     parsedRows.push({
       id: `csv-dt-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
@@ -89,6 +145,13 @@ export const parseCsvToSheetDT = (csvText: string, deParaList: ProductDePara[] =
       dataCriacao: hoje,
       dataAgendamento,
       tipoCarga,
+      lastro: num(lastroIdx),
+      camada: num(camadaIdx),
+      qtdPallet: num(palletIdx),
+      quebraFardos: num(quebraIdx),
+      ov: texto(ovIdx),
+      remessa: texto(remessaIdx),
+      categoria: texto(categoriaIdx),
     });
   }
 
@@ -99,7 +162,7 @@ export const parseCsvToSheetDT = (csvText: string, deParaList: ProductDePara[] =
 export const fetchSheetDT = async (url: string | undefined, deParaList: ProductDePara[] = []): Promise<SheetRowDT[]> => {
   const parsed = parseCsvToSheetDT(await fetchSheetCsv(url, 'LISTA DT'), deParaList);
   if (parsed.length === 0) {
-    throw new Error('Nenhuma linha válida encontrada. Confira as colunas DT, PLACA, SKU e QUANTIDADE.');
+    throw new Error('Nenhuma linha válida encontrada. Confira as colunas DT TRANSPORTE, SKU e QTDE REMESSA.');
   }
   return parsed;
 };

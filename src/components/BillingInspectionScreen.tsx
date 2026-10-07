@@ -17,7 +17,9 @@ import {
   Sheet,
   ShieldCheck,
   ChevronLeft,
-  RefreshCw
+  RefreshCw,
+  Table2,
+  Copy
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { CargoInspection, SheetRowFAT, AppSettings, UserSession } from '../types';
@@ -82,6 +84,44 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
   // 2: Scan NF-e Key & 3-way check
   const [step, setStep] = useState<1 | 2>(initialInspection ? 2 : 1);
   const [selectedInspection, setSelectedInspection] = useState<CargoInspection | null>(initialInspection || null);
+  // Card com a tabela SKU / Quantidade / Lote da DT (para copiar)
+  const [tabelaDt, setTabelaDt] = useState<CargoInspection | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const linhasTabela = (insp: CargoInspection) => {
+    const mapa = new Map<string, { sku: string; quantidade: number; lote: string }>();
+    insp.itensConferidos.forEach((it) => {
+      const partes = it.lotes && it.lotes.length > 0 ? it.lotes : [{ lote: it.lote, quantidade: it.quantidadeCarregada }];
+      partes.forEach((p) => {
+        if (!p.quantidade) return;
+        const lote = (p.lote || '-').trim() || '-';
+        const k = `${it.sku}|${lote}`;
+        const atual = mapa.get(k);
+        if (atual) atual.quantidade += p.quantidade;
+        else mapa.set(k, { sku: it.sku, quantidade: p.quantidade, lote });
+      });
+    });
+    return [...mapa.values()].sort(
+      (a, b) => a.sku.localeCompare(b.sku, 'pt-BR', { numeric: true }) || a.lote.localeCompare(b.lote, 'pt-BR')
+    );
+  };
+  const copiarTabela = async (insp: CargoInspection) => {
+    // Tabulado: cola direto em colunas no Excel / Google Sheets
+    const texto = ['SKU\tQUANTIDADE\tLOTE', ...linhasTabela(insp).map((l) => `${l.sku}\t${l.quantidade}\t${l.lote}`)].join('\n');
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [chaveNFeInput, setChaveNFeInput] = useState('');
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -327,7 +367,7 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
         <div>
           <span className="text-[11px] font-black uppercase tracking-wider text-purple-600 block">
-            Tópico 4 • Auditoria Fiscal & Expedição
+            Tópico 6 • Auditoria Fiscal & Expedição
           </span>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center space-x-2">
             <ReceiptText className="w-6 h-6 text-purple-600" />
@@ -387,11 +427,18 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
                 const totalVol = insp.itensConferidos.reduce((a, b) => a + b.quantidadeCarregada, 0);
 
                 return (
-                  <button
+                  <div
                     key={insp.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleSelectDt(insp)}
-                    className={`p-4 rounded-2xl border text-left transition-all flex items-start justify-between ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectDt(insp);
+                      }
+                    }}
+                    className={`p-4 rounded-2xl border text-left transition-all flex items-start justify-between cursor-pointer ${
                       isSelected
                         ? 'bg-purple-50/80 border-purple-500 shadow-md ring-2 ring-purple-400/30'
                         : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300'
@@ -405,20 +452,32 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
                         </span>
                       </div>
                       <p className="text-xs text-slate-600">
-                        Motorista: <span className="font-semibold">{insp.motorista || 'Severino Silva'}</span>
+                        Motorista: <span className="font-semibold">{insp.motorista || 'Não informado'}</span>
                       </p>
                       <p className="text-[11px] text-slate-400">
                         Volumes Físicos: <span className="font-bold text-emerald-700">{totalVol} vol.</span>
                       </p>
                     </div>
 
-                    <div className="text-right">
+                    <div className="text-right flex flex-col items-end gap-2">
                       {/* Mercosul Placa */}
                       <div className="bg-white border-2 border-blue-600 rounded px-2 py-0.5 text-xs font-mono font-black text-slate-900 shadow-xs">
                         {insp.placa}
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCopiado(false);
+                          setTabelaDt(insp);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-black flex items-center gap-1 shadow-sm"
+                      >
+                        <Table2 className="w-3.5 h-3.5" />
+                        Tabela
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -770,37 +829,6 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
             </div>
           )}
 
-          {/* Recipient Emails Preview */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs space-y-1.5">
-            <span className="font-bold text-slate-700 flex items-center">
-              <Mail className="w-3.5 h-3.5 mr-1 text-purple-600" />
-              Notificação por E-mail ao Confirmar:
-            </span>
-            <div className="flex flex-wrap gap-1">
-              {settings.emailsFaturamento.map((e) => (
-                <span key={e} className="px-2 py-0.5 bg-white border border-slate-200 rounded font-mono text-[11px] text-slate-700">
-                  {e}
-                </span>
-              ))}
-            </div>
-            {temOcorrenciaFat && (settings.emailsOcorrencias?.length || 0) > 0 && (
-              <div className="pt-1.5 border-t border-slate-200 space-y-1">
-                <span className="font-bold text-rose-700 flex items-center">
-                  <AlertTriangle className="w-3.5 h-3.5 mr-1" />
-                  + Grupo Divergências &amp; Cortes ({hasDivergence ? 'divergência de faturamento' : ''}
-                  {hasDivergence && totCorte > 0 ? ' e ' : ''}
-                  {totCorte > 0 ? 'corte operacional' : ''}):
-                </span>
-                <div className="flex flex-wrap gap-1">
-                  {settings.emailsOcorrencias!.map((e) => (
-                    <span key={e} className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded font-mono text-[11px] text-rose-800">
-                      {e}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Bottom Actions: "Confirmar conferencia ou cancelar" */}
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-3">
@@ -834,12 +862,93 @@ export const BillingInspectionScreen: React.FC<BillingInspectionScreenProps> = (
           inspection={selectedInspection}
           recipients={destinatariosFat}
           empresaNome={settings.empresaNome}
+          unidadeCD={settings.unidadeCD}
+          clientNotes={settings.clientNotes}
           onClose={() => {
             setShowEmailModal(false);
             onNavigateHome();
           }}
         />
       )}
+
+      {/* Card: tabela SKU / Quantidade / Lote */}
+      {tabelaDt && (() => {
+        const linhas = linhasTabela(tabelaDt);
+        const total = linhas.reduce((a, l) => a + l.quantidade, 0);
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setTabelaDt(null)}
+          >
+            <div
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3 px-5 py-4 bg-slate-900 text-white">
+                <div>
+                  <h3 className="font-black text-base flex items-center gap-2">
+                    <Table2 className="w-5 h-5 text-purple-300" />
+                    Itens da DT {tabelaDt.dt}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {linhas.length} linha(s) • {total} vol. • Placa {tabelaDt.placa || '-'}
+                  </p>
+                </div>
+                <button type="button" onClick={() => setTabelaDt(null)} className="p-2 rounded-lg hover:bg-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {linhas.length === 0 ? (
+                  <p className="p-6 text-center text-sm text-slate-500">Nenhum item conferido nesta DT.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-100 text-[11px] uppercase tracking-wider text-slate-600">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-black">SKU</th>
+                        <th className="text-right px-4 py-2 font-black">Quantidade</th>
+                        <th className="text-left px-4 py-2 font-black">Lote</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linhas.map((l) => (
+                        <tr key={`${l.sku}|${l.lote}`} className="border-t border-slate-100 even:bg-slate-50">
+                          <td className="px-4 py-2 font-mono font-black text-slate-900">{l.sku}</td>
+                          <td className="px-4 py-2 text-right font-mono font-bold text-slate-800">{l.quantidade}</td>
+                          <td className="px-4 py-2 font-mono text-slate-700">{l.lote}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-300 bg-slate-50">
+                        <td className="px-4 py-2 text-xs font-black uppercase text-slate-600">Total</td>
+                        <td className="px-4 py-2 text-right font-mono font-black text-slate-900">{total}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  disabled={linhas.length === 0}
+                  onClick={() => copiarTabela(tabelaDt)}
+                  className={`w-full h-12 rounded-xl text-white font-black flex items-center justify-center gap-2 transition-colors disabled:opacity-50 ${
+                    copiado ? 'bg-emerald-600' : 'bg-purple-600 hover:bg-purple-700'
+                  }`}
+                >
+                  {copiado ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                  {copiado ? 'Copiado!' : 'Copiar tabela'}
+                </button>
+                <p className="mt-1.5 text-center text-[10px] text-slate-400">Cola direto em colunas no Excel / Google Sheets.</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

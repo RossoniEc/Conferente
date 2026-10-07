@@ -11,9 +11,11 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  History
+  History,
+  Warehouse,
+  PackageSearch
 } from 'lucide-react';
-import { ActiveTab, CargoInspection, UserSession } from '../types';
+import { ActiveTab, CargoInspection, SheetRowDT, UserSession } from '../types';
 
 interface HomeScreenProps {
   onNavigate: (tab: ActiveTab) => void;
@@ -24,6 +26,7 @@ interface HomeScreenProps {
   availableDtCount: number;
   availableVolume: number;
   skuCount: number;
+  sheetRowsDT?: SheetRowDT[];
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -35,6 +38,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   availableDtCount,
   availableVolume,
   skuCount,
+  sheetRowsDT = [],
 }) => {
   const emConferencia = inspections.filter((i) => i.status === 'em_conferencia');
   const emConferenciaCount = emConferencia.length;
@@ -47,7 +51,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
   const carregadasCount = emConferencia.filter(isCarregada).length;
   const emProcessoCount = emConferenciaCount - carregadasCount;
-  const concluidosCount = inspections.filter((i) => i.status === 'concluido' || i.status.startsWith('faturado')).length;
+  const finalizadas = inspections.filter((i) => i.status === 'concluido' || i.status.startsWith('faturado'));
+  const concluidosCount = finalizadas.length;
+  // Volume carregado nas cargas finalizadas
+  const volumeFinalizado = finalizadas.reduce(
+    (acc, i) => acc + i.itensConferidos.reduce((a, it) => a + it.quantidadeCarregada, 0),
+    0
+  );
   // Etapa de faturamento: carga finalizada e ainda não faturada
   const aguardandoFatCount = inspections.filter((i) => i.status === 'concluido').length;
 
@@ -70,22 +80,107 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     0
   );
 
-  // Planejado do dia: DTs ainda disponíveis na LISTA DT + em andamento + finalizadas hoje
-  const planejadoDtCount = availableDtCount + emConferenciaCount + realizadoHoje;
-  const planejadoVolume =
-    availableVolume +
-    [...emConferencia, ...finalizadasHoje].reduce(
-      (acc, i) => acc + i.itensPlanejados.reduce((a, p) => a + p.quantidadePlanejada, 0),
-      0
-    );
+  // DTs da LISTA DT agrupadas, com a data agendada (coluna DATA) e a situação na conferência
+  const findInsp = (dt: string) => inspections.find((i) => i.dt.toUpperCase() === dt.toUpperCase());
+  const isFinalizada = (i?: CargoInspection) => !!i && (i.status === 'concluido' || i.status.startsWith('faturado'));
+  const gruposDt = Array.from(
+    sheetRowsDT
+      .reduce((map, r) => {
+        const k = r.dt.toUpperCase();
+        const g = map.get(k) || { dt: r.dt, data: r.dataAgendamento, cliente: r.cliente, placa: r.placa, volume: 0 };
+        g.volume += r.quantidade;
+        // DT com SKUs em datas diferentes: vale a data mais recente (reagendamento)
+        if (r.dataAgendamento && (!g.data || r.dataAgendamento > g.data)) g.data = r.dataAgendamento;
+        map.set(k, g);
+        return map;
+      }, new Map<string, { dt: string; data?: string; cliente?: string; placa: string; volume: number }>())
+      .values()
+  );
+  const usaDataPlanilha = gruposDt.some((g) => g.data);
 
-  // % Evolução: DTs finalizadas hoje sobre o planejado do dia
-  const evolucaoPct = planejadoDtCount > 0 ? Math.round((realizadoHoje / planejadoDtCount) * 100) : 0;
+  // Planejado do dia: DTs com DATA de hoje na LISTA DT (sem a coluna DATA: disponíveis + em andamento + finalizadas hoje)
+  const planejadasHoje = gruposDt.filter((g) => g.data === todayIso);
+  const planejadoDtCount = usaDataPlanilha ? planejadasHoje.length : availableDtCount + emConferenciaCount + realizadoHoje;
+  const planejadoVolume = usaDataPlanilha
+    ? planejadasHoje.reduce((a, g) => a + g.volume, 0)
+    : availableVolume +
+      [...emConferencia, ...finalizadasHoje].reduce(
+        (acc, i) => acc + i.itensPlanejados.reduce((a, p) => a + p.quantidadePlanejada, 0),
+        0
+      );
+  // Planejado do dia por Tipo de Carga (Paletizado, Estivado…): DTs e volume de cada tipo
+  const dtsHojeSet = new Set(planejadasHoje.map((g) => g.dt.toUpperCase()));
+  const porTipo = Array.from(
+    sheetRowsDT
+      .filter((r) => dtsHojeSet.has(r.dt.toUpperCase()))
+      .reduce((map, r) => {
+        const tipo = r.tipoCarga || 'Sem tipo';
+        const t = map.get(tipo) || { tipo, dts: new Set<string>(), volume: 0 };
+        t.dts.add(r.dt.toUpperCase());
+        t.volume += r.quantidade;
+        map.set(tipo, t);
+        return map;
+      }, new Map<string, { tipo: string; dts: Set<string>; volume: number }>())
+      .values()
+  ).sort((a, b) => b.volume - a.volume);
+  // % de cada tipo sobre o volume planejado do dia
+  const volumeTipos = porTipo.reduce((a, t) => a + t.volume, 0);
+  const pctTipo = (v: number) => (volumeTipos > 0 ? Math.round((v / volumeTipos) * 100) : 0);
+  const corTipo = (tipo: string) => {
+    const t = tipo.toLowerCase();
+    if (t.startsWith('palet')) return 'bg-blue-500/15 border-blue-400/40 text-blue-200';
+    if (t.startsWith('estiv') || t.startsWith('batid')) return 'bg-violet-500/15 border-violet-400/40 text-violet-200';
+    if (t.startsWith('fracion')) return 'bg-amber-500/15 border-amber-400/40 text-amber-200';
+    return 'bg-slate-700/60 border-slate-600 text-slate-300';
+  };
+
+  const realizadoPlanejado = usaDataPlanilha
+    ? planejadasHoje.filter((g) => isFinalizada(findInsp(g.dt))).length
+    : realizadoHoje;
+
+  // % Evolução: DTs do planejado do dia já finalizadas
+  const evolucaoPct = planejadoDtCount > 0 ? Math.round((realizadoPlanejado / planejadoDtCount) * 100) : 0;
+
+  // DTs em atraso: DATA anterior a hoje e carga ainda não finalizada
+  const diaMs = 86_400_000;
+  const dtsAtrasadas = gruposDt
+    .filter((g) => g.data && g.data < todayIso && !isFinalizada(findInsp(g.dt)))
+    .map((g) => {
+      const insp = findInsp(g.dt);
+      const dias = Math.round(
+        (new Date(todayIso + 'T00:00:00').getTime() - new Date(g.data + 'T00:00:00').getTime()) / diaMs
+      );
+      return { ...g, dias, emConferencia: insp?.status === 'em_conferencia' };
+    })
+    .sort((a, b) => b.dias - a.dias || a.dt.localeCompare(b.dt));
+  const atrasoVolume = dtsAtrasadas.reduce((a, g) => a + g.volume, 0);
 
   const menuItems = [
     {
-      id: 'select_load' as ActiveTab,
+      id: 'storage' as ActiveTab,
       number: '1',
+      title: 'Armazenagem',
+      subtitle: 'Mapa de estoque por endereço (rua, SKU, lote e pallets) e otimização de endereços',
+      icon: Warehouse,
+      color: 'from-indigo-600 to-violet-600',
+      tag: 'Estoque',
+      badge: null,
+      badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    },
+    {
+      id: 'picking' as ActiveTab,
+      number: '2',
+      title: 'Separação de Carga',
+      subtitle: 'Lista de coleta por DT com endereço e lote (FIFO) e baixa do estoque',
+      icon: PackageSearch,
+      color: 'from-teal-600 to-cyan-600',
+      tag: 'Picking',
+      badge: null,
+      badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',
+    },
+    {
+      id: 'select_load' as ActiveTab,
+      number: '3',
       title: 'Selecionar Carga',
       subtitle: 'Importar planejamento via QR Code ou busca por DT / Placa do caminhão',
       icon: QrCode,
@@ -96,7 +191,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     },
     {
       id: 'load_inspection' as ActiveTab,
-      number: '2',
+      number: '4',
       title: 'Conferência de Carga',
       subtitle: 'Scanner EAN/SKU, lote, lastro x camada, fotos de carga, lacre e Book PDF',
       icon: ScanLine,
@@ -107,7 +202,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     },
     {
       id: 'load_list' as ActiveTab,
-      number: '3',
+      number: '5',
       title: 'Lista de Carga (100% Carregadas)',
       subtitle: 'Cargas com 100% do volume carregado, aguardando finalização (lacre e foto final)',
       icon: ListOrdered,
@@ -118,7 +213,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     },
     {
       id: 'billing_inspection' as ActiveTab,
-      number: '4',
+      number: '6',
       title: 'Conferência de Faturamento',
       subtitle: 'Leitura da chave NF-e, check FAT Google Sheets, divergências e e-mail',
       icon: ReceiptText,
@@ -129,7 +224,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     },
     {
       id: 'history' as ActiveTab,
-      number: '5',
+      number: '7',
       title: 'Histórico de DTs',
       subtitle: 'Consultar DTs encerradas: dados da conferência, faturamento e book de imagens',
       icon: History,
@@ -140,7 +235,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     },
     {
       id: 'settings' as ActiveTab,
-      number: '6',
+      number: '8',
       title: 'Configuração',
       subtitle: 'Tabela De/Para, Comentários de Clientes, planilhas Google Sheets e e-mails',
       icon: SettingsIcon,
@@ -157,17 +252,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-700/60 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
         <div className="relative z-10 flex flex-col gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-              Olá, {user.name}
-            </h2>
-          </div>
-
           {/* Quick Metrics */}
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3 shrink-0">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 shrink-0">
             <div
               className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]"
-              title="DTs disponíveis na LISTA DT + em andamento + finalizadas hoje"
+              title={usaDataPlanilha ? `DTs com DATA ${todayBr} na LISTA DT` : 'DTs disponíveis na LISTA DT + em andamento + finalizadas hoje'}
             >
               <span className="text-lg sm:text-xl font-black text-white block">{planejadoDtCount}</span>
               <span className="text-[10px] text-slate-400 uppercase font-semibold">Planejado do Dia</span>
@@ -180,6 +269,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]">
               <span className="text-lg sm:text-xl font-black text-emerald-400 block">{concluidosCount}</span>
               <span className="text-[10px] text-slate-400 uppercase font-semibold">Finalizadas</span>
+              <span className="block text-[10px] text-slate-500 font-mono">{volumeFinalizado.toLocaleString('pt-BR')} vol.</span>
             </div>
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]">
               <span className="text-lg sm:text-xl font-black text-sky-400 block">{faturadasHoje.length}</span>
@@ -195,6 +285,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 {evolucaoPct}%
               </span>
               <span className="text-[10px] text-slate-400 uppercase font-semibold">% Evolução</span>
+              <span className="block text-[10px] text-slate-500 font-mono">
+                {realizadoPlanejado}/{planejadoDtCount} DTs
+              </span>
               <div className="mt-1.5 h-1 w-full bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full ${
@@ -204,7 +297,45 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 />
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('select_load')}
+              className={`rounded-2xl p-3 text-center min-w-[90px] border transition-colors ${
+                dtsAtrasadas.length > 0
+                  ? 'bg-rose-500/15 border-rose-500/60 hover:bg-rose-500/25'
+                  : 'bg-slate-800/80 border-slate-700'
+              }`}
+              title="DTs com DATA anterior a hoje e carga ainda não finalizada — toque para abrir Selecionar Carga"
+            >
+              <span
+                className={`text-lg sm:text-xl font-black block ${dtsAtrasadas.length > 0 ? 'text-rose-400' : 'text-slate-300'}`}
+              >
+                {dtsAtrasadas.length}
+              </span>
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Em Atraso</span>
+              <span className="block text-[10px] text-slate-500 font-mono">{atrasoVolume} vol.</span>
+            </button>
           </div>
+
+          {/* Planejado do dia por Tipo de Carga */}
+          {porTipo.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Planejado por tipo:</span>
+              {porTipo.map((t) => (
+                <span
+                  key={t.tipo}
+                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] leading-tight ${corTipo(t.tipo)}`}
+                >
+                  <span className="font-black uppercase tracking-wide">{t.tipo}</span>
+                  <span className="font-black text-white text-[10px]">
+                    {t.dts.size} DT{t.dts.size > 1 ? 's' : ''}
+                  </span>
+                  <span className="font-mono text-slate-300">{t.volume.toLocaleString('pt-BR')} vol.</span>
+                  <span className="font-black text-white text-[10px] rounded bg-white/15 px-1">{pctTipo(t.volume)}%</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Active Load fast-jump banner if any */}

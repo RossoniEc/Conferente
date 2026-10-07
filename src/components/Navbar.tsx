@@ -47,18 +47,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const getTabTitle = (tab: ActiveTab) => {
     switch (tab) {
+      case 'storage':
+        return '1. Armazenagem';
+      case 'picking':
+        return '2. Separação de Carga';
       case 'select_load':
-        return '1. Selecionar Carga';
-      case 'load_list':
-        return '3. Lista de Carga';
+        return '3. Selecionar Carga';
       case 'load_inspection':
-        return '2. Conferência de Carga';
+        return '4. Conferência de Carga';
+      case 'load_list':
+        return '5. Lista de Carga';
       case 'billing_inspection':
-        return '4. Conferência Faturamento';
+        return '6. Conferência Faturamento';
       case 'history':
-        return '5. Histórico de DTs';
+        return '7. Histórico de DTs';
       case 'settings':
-        return '6. Configurações';
+        return '8. Configurações';
       default:
         return 'Menu Principal';
     }
