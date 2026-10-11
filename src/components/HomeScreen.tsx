@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   QrCode, 
   ListOrdered, 
@@ -13,7 +13,8 @@ import {
   AlertCircle,
   History,
   Warehouse,
-  PackageSearch
+  PackageSearch,
+  ChevronDown,
 } from 'lucide-react';
 import { ActiveTab, CargoInspection, SheetRowDT, UserSession } from '../types';
 
@@ -155,6 +156,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     .sort((a, b) => b.dias - a.dias || a.dt.localeCompare(b.dt));
   const atrasoVolume = dtsAtrasadas.reduce((a, g) => a + g.volume, 0);
 
+  // Indicadores do topo: o usuário pode ocultar (a escolha fica salva no aparelho)
+  const [kpiOculto, setKpiOculto] = useState(() => {
+    try {
+      return localStorage.getItem('cargacheck_home_kpi_oculto') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const alternarKpi = () =>
+    setKpiOculto((v) => {
+      try {
+        localStorage.setItem('cargacheck_home_kpi_oculto', v ? '0' : '1');
+      } catch {
+        /* sem armazenamento: vale só nesta sessão */
+      }
+      return !v;
+    });
+
   const menuItems = [
     {
       id: 'storage' as ActiveTab,
@@ -252,6 +271,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-700/60 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
         <div className="relative z-10 flex flex-col gap-4">
+          {/* Exibir / ocultar indicadores */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-300">Indicadores do dia</span>
+            <button
+              type="button"
+              onClick={alternarKpi}
+              aria-expanded={!kpiOculto}
+              className="px-2.5 py-1 rounded-lg border border-slate-600 hover:border-slate-400 text-[11px] font-bold text-slate-200 flex items-center gap-1 transition-colors"
+            >
+              {kpiOculto ? 'Exibir' : 'Ocultar'}
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${kpiOculto ? '' : 'rotate-180'}`} />
+            </button>
+          </div>
+          {!kpiOculto && (
+            <>
           {/* Quick Metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-1.5 sm:gap-3 shrink-0">
             <div
@@ -335,6 +369,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 </span>
               ))}
             </div>
+          )}
+            </>
           )}
         </div>
 

@@ -738,10 +738,10 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
       {/* ---------- Modal Configurar Endereço ---------- */}
       {endereco && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-start justify-center p-1.5 pt-2 sm:p-6 sm:pt-4 bg-slate-950/70 backdrop-blur-sm"
           onClick={(e) => e.target === e.currentTarget && setEndereco(null)}
         >
-          <div role="dialog" aria-modal="true" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-white rounded-3xl shadow-2xl">
+          <div role="dialog" aria-modal="true" className="w-full max-w-xl max-h-[96vh] overflow-y-auto bg-white rounded-3xl shadow-2xl">
             <div className="px-5 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-black text-slate-900">Configurar Endereço: {endereco}</h3>
@@ -756,11 +756,11 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="px-2 py-3 space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-3">
                 {/* SKU: campo com lista de sugestões própria (alinhada ao campo) */}
                 <div className="relative flex items-center gap-2">
-                  <label htmlFor="armazem-sku" className="w-[5.5rem] shrink-0 text-sm font-bold text-slate-700">
+                  <label htmlFor="armazem-sku" className="w-14 shrink-0 text-sm font-bold text-slate-700">
                     SKU*
                   </label>
                   <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -856,7 +856,7 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
                 </div>
                 <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center gap-2">
-                  <label htmlFor="armazem-lote" className="w-[5.5rem] shrink-0 text-sm font-bold text-slate-700">
+                  <label htmlFor="armazem-lote" className="w-14 shrink-0 text-sm font-bold text-slate-700">
                     Lote*
                   </label>
                   <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -924,8 +924,8 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
                   </div>
                 </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-[5.5rem] shrink-0 text-sm font-bold text-slate-700 leading-tight">
-                      Quantidade*
+                    <span className="w-14 shrink-0 text-sm font-bold text-slate-700 leading-tight">
+                      Qt.*
                       <span className="block text-[11px] font-semibold text-slate-500">(pallets)</span>
                     </span>
                     <div className="flex-1 min-w-0 flex items-center gap-2">
