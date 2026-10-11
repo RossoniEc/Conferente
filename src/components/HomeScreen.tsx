@@ -160,7 +160,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       id: 'storage' as ActiveTab,
       number: '1',
       title: 'Armazenagem',
-      subtitle: 'Mapa de estoque por endereço (rua, SKU, lote e pallets) e otimização de endereços',
+      subtitle: '',
       icon: Warehouse,
       color: 'from-indigo-600 to-violet-600',
       tag: 'Estoque',
@@ -253,42 +253,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
         <div className="relative z-10 flex flex-col gap-4">
           {/* Quick Metrics */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 shrink-0">
+          <div className="grid grid-cols-1 sm:grid-cols-6 gap-1.5 sm:gap-3 shrink-0">
             <div
-              className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]"
+              className="bg-slate-800/80 border border-slate-700 rounded-xl sm:rounded-2xl px-3 py-2 sm:p-3 flex items-center gap-3 sm:block text-left sm:text-center min-w-[90px]"
               title={usaDataPlanilha ? `DTs com DATA ${todayBr} na LISTA DT` : 'DTs disponíveis na LISTA DT + em andamento + finalizadas hoje'}
             >
-              <span className="text-lg sm:text-xl font-black text-white block">{planejadoDtCount}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Planejado do Dia</span>
-              <span className="block text-[10px] text-slate-500 font-mono">{planejadoVolume} vol.</span>
+              <span className="w-12 shrink-0 text-center sm:w-auto text-xl font-black text-white block">{planejadoDtCount}</span>
+              <span className="flex-1 text-xs sm:text-[10px] text-slate-300 sm:text-slate-400 uppercase font-semibold">Planejado do Dia</span>
+              <span className="sm:block text-xs sm:text-[10px] text-slate-400 sm:text-slate-500 font-mono">{planejadoVolume} vol.</span>
             </div>
-            <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]">
-              <span className="text-lg sm:text-xl font-black text-amber-400 block">{emConferenciaCount}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Em Andamento</span>
+            <div className="bg-slate-800/80 border border-slate-700 rounded-xl sm:rounded-2xl px-3 py-2 sm:p-3 flex items-center gap-3 sm:block text-left sm:text-center min-w-[90px]">
+              <span className="w-12 shrink-0 text-center sm:w-auto text-xl font-black text-amber-400 block">{emConferenciaCount}</span>
+              <span className="flex-1 text-xs sm:text-[10px] text-slate-300 sm:text-slate-400 uppercase font-semibold">Em Andamento</span>
             </div>
-            <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]">
-              <span className="text-lg sm:text-xl font-black text-emerald-400 block">{concluidosCount}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Finalizadas</span>
-              <span className="block text-[10px] text-slate-500 font-mono">{volumeFinalizado.toLocaleString('pt-BR')} vol.</span>
+            <div className="bg-slate-800/80 border border-slate-700 rounded-xl sm:rounded-2xl px-3 py-2 sm:p-3 flex items-center gap-3 sm:block text-left sm:text-center min-w-[90px]">
+              <span className="w-12 shrink-0 text-center sm:w-auto text-xl font-black text-emerald-400 block">{concluidosCount}</span>
+              <span className="flex-1 text-xs sm:text-[10px] text-slate-300 sm:text-slate-400 uppercase font-semibold">Finalizadas</span>
+              <span className="sm:block text-xs sm:text-[10px] text-slate-400 sm:text-slate-500 font-mono">{volumeFinalizado.toLocaleString('pt-BR')} vol.</span>
             </div>
-            <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]">
-              <span className="text-lg sm:text-xl font-black text-sky-400 block">{faturadasHoje.length}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Faturado</span>
-              <span className="block text-[10px] text-slate-500 font-mono">{faturadoVolume} vol.</span>
+            <div className="bg-slate-800/80 border border-slate-700 rounded-xl sm:rounded-2xl px-3 py-2 sm:p-3 flex items-center gap-3 sm:block text-left sm:text-center min-w-[90px]">
+              <span className="w-12 shrink-0 text-center sm:w-auto text-xl font-black text-sky-400 block">{faturadasHoje.length}</span>
+              <span className="flex-1 text-xs sm:text-[10px] text-slate-300 sm:text-slate-400 uppercase font-semibold">Total Faturado</span>
+              <span className="sm:block text-xs sm:text-[10px] text-slate-400 sm:text-slate-500 font-mono">{faturadoVolume} vol.</span>
             </div>
-            <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3 text-center min-w-[90px]">
+            <div className="bg-slate-800/80 border border-slate-700 rounded-xl sm:rounded-2xl px-3 py-2 sm:p-3 flex items-center gap-3 sm:block text-left sm:text-center min-w-[90px]">
               <span
-                className={`text-lg sm:text-xl font-black block ${
+                className={`w-12 shrink-0 text-center sm:w-auto text-xl font-black block ${
                   evolucaoPct >= 100 ? 'text-emerald-400' : evolucaoPct >= 50 ? 'text-amber-400' : 'text-rose-400'
                 }`}
               >
                 {evolucaoPct}%
               </span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">% Evolução</span>
-              <span className="block text-[10px] text-slate-500 font-mono">
+              <span className="flex-1 text-xs sm:text-[10px] text-slate-300 sm:text-slate-400 uppercase font-semibold">% Evolução</span>
+              <span className="sm:block text-xs sm:text-[10px] text-slate-400 sm:text-slate-500 font-mono">
                 {realizadoPlanejado}/{planejadoDtCount} DTs
               </span>
-              <div className="mt-1.5 h-1 w-full bg-slate-700 rounded-full overflow-hidden">
+              <div className="hidden sm:block mt-1.5 h-1 w-full bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full ${
                     evolucaoPct >= 100 ? 'bg-emerald-400' : evolucaoPct >= 50 ? 'bg-amber-400' : 'bg-rose-400'
@@ -300,7 +300,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('select_load')}
-              className={`rounded-2xl p-3 text-center min-w-[90px] border transition-colors ${
+              className={`rounded-xl sm:rounded-2xl px-3 py-2 sm:p-3 flex items-center gap-3 sm:block text-left sm:text-center min-w-[90px] border transition-colors ${
                 dtsAtrasadas.length > 0
                   ? 'bg-rose-500/15 border-rose-500/60 hover:bg-rose-500/25'
                   : 'bg-slate-800/80 border-slate-700'
@@ -308,12 +308,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               title="DTs com DATA anterior a hoje e carga ainda não finalizada — toque para abrir Selecionar Carga"
             >
               <span
-                className={`text-lg sm:text-xl font-black block ${dtsAtrasadas.length > 0 ? 'text-rose-400' : 'text-slate-300'}`}
+                className={`w-12 shrink-0 text-center sm:w-auto text-xl font-black block ${dtsAtrasadas.length > 0 ? 'text-rose-400' : 'text-slate-300'}`}
               >
                 {dtsAtrasadas.length}
               </span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Em Atraso</span>
-              <span className="block text-[10px] text-slate-500 font-mono">{atrasoVolume} vol.</span>
+              <span className="flex-1 text-xs sm:text-[10px] text-slate-300 sm:text-slate-400 uppercase font-semibold">Em Atraso</span>
+              <span className="sm:block text-xs sm:text-[10px] text-slate-400 sm:text-slate-500 font-mono">{atrasoVolume} vol.</span>
             </button>
           </div>
 
@@ -344,10 +344,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="flex items-center space-x-2 text-xs">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
               <span className="font-bold text-slate-200">Carga em Andamento:</span>
-              <span className="font-mono bg-slate-800 px-2.5 py-0.5 rounded text-amber-300 font-bold text-2xl">
+              <span className="font-mono bg-slate-800 px-2.5 py-0.5 rounded text-amber-300 font-bold text-base sm:text-2xl whitespace-nowrap">
                 {activeInspection.dt}
               </span>
-              <span className="font-mono bg-slate-800 px-2.5 py-0.5 rounded text-slate-300 font-bold text-2xl">
+              <span className="font-mono bg-slate-800 px-2.5 py-0.5 rounded text-slate-300 font-bold text-base sm:text-2xl whitespace-nowrap">
                 {activeInspection.placa}
               </span>
             </div>
@@ -408,9 +408,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     )}
                   </div>
 
-                  <p className="text-xs text-slate-600 leading-relaxed font-normal pl-0 sm:pl-1">
-                    {item.subtitle}
-                  </p>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-400 group-hover:text-slate-700">

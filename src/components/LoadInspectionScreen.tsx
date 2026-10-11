@@ -108,6 +108,18 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inspection.retornoPallet]);
+  // Placa + foto inicial: oculta automaticamente ~1,5s após ficarem preenchidas
+  const veiculoOk = placaValida && !!inspection.fotoVeiculoInicio;
+  const [veiculoAberto, setVeiculoAberto] = useState(!veiculoOk);
+  useEffect(() => {
+    if (!veiculoOk) {
+      setVeiculoAberto(true);
+      return;
+    }
+    const t = setTimeout(() => setVeiculoAberto(false), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [veiculoOk, inspection.fotoVeiculoInicio]);
   const atualizarRetorno = (parcial: Partial<RetornoPallet>) =>
     onUpdateInspection({
       ...inspection,
@@ -118,8 +130,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
   const [assinaturaConferente, setAssinaturaConferente] = useState<string | null>(inspection.assinaturaConferente || null);
 
   // Persistent Batch/Lote replication memory
-  const [replicatedLote, setReplicatedLote] = useState('L-2026A');
-  const [autoReplicateLote, setAutoReplicateLote] = useState(true);
+  const [replicatedLote, setReplicatedLote] = useState('');
+  const [autoReplicateLote, setAutoReplicateLote] = useState(false);
 
   // New Item Entry Form State
   const [currentEan, setCurrentEan] = useState('');
@@ -143,7 +155,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
       .querySelector('[data-chip-selected="true"]')
       ?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, [matchedSku]);
-  const [currentLote, setCurrentLote] = useState(replicatedLote);
+  const [currentLote, setCurrentLote] = useState('');
   // Vários lotes na mesma leitura: quantidade do 1º lote + lotes adicionais
   const [currentLoteQtd, setCurrentLoteQtd] = useState(0);
   const [extraLotes, setExtraLotes] = useState<LoteQuantidade[]>([]);
@@ -233,6 +245,7 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     setPallets(0);
     setTotalDireto(0);
     setAccumulatorHistory([]);
+    setAccInput('');
 
     if (prefillSku) {
       const match = produtoDaCarga(prefillSku);
@@ -260,6 +273,20 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
     setAccumulatorHistory(newHist);
     const sum = newHist.reduce((a, b) => a + b, 0);
     setTotalDireto(sum);
+  };
+
+  // Itens conferidos: resumidos em uma linha; ficam expandidos apenas os que o usuário abrir
+  const [itensAbertos, setItensAbertos] = useState<string[]>([]);
+  const alternarItem = (id: string) =>
+    setItensAbertos((atual) => (atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]));
+
+  // Valor digitado pelo usuário para somar aos quadrinhos
+  const [accInput, setAccInput] = useState('');
+  const handleAddTypedAccumulator = () => {
+    const qty = Math.floor(Number(accInput));
+    if (!qty || qty <= 0) return;
+    handleAddAccumulator(qty);
+    setAccInput('');
   };
 
   const handleClearAccumulator = () => {
@@ -694,7 +721,42 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
           </div>
         </div>
 
-        {/* Vehicle Placa Input + Initial Photo Section */}
+        {/* Vehicle Placa Input + Initial Photo Section (oculta quando preenchida) */}
+        {veiculoOk && !veiculoAberto ? (
+          <button
+            type="button"
+            onClick={() => setVeiculoAberto(true)}
+            className="w-full bg-slate-950/70 border border-emerald-600/50 rounded-2xl px-3 py-2.5 flex items-center gap-2 text-left hover:border-emerald-400 transition-colors"
+          >
+            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+            <span className="flex-1 min-w-0">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Placa e foto inicial</span>
+              <span className="block text-sm font-black font-mono text-emerald-200 truncate">{placaInput} • foto registrada</span>
+            </span>
+            <img
+              src={inspection.fotoVeiculoInicio}
+              alt="Veículo"
+              className="w-10 h-8 object-cover rounded-md border border-slate-700 shrink-0"
+            />
+            <span className="shrink-0 flex items-center gap-1 text-xs font-bold text-slate-300">
+              Exibir
+              <ChevronDown className="w-4 h-4" />
+            </span>
+          </button>
+        ) : (
+        <div className="space-y-2">
+        {veiculoOk && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setVeiculoAberto(false)}
+              className="px-2 py-1 rounded-lg border border-slate-700 hover:border-slate-500 text-[10px] font-bold text-slate-300 flex items-center gap-1"
+            >
+              Ocultar
+              <ChevronDown className="w-3.5 h-3.5 rotate-180" />
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           {/* Placa do carro input */}
           <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3 flex items-center justify-between">
@@ -787,6 +849,8 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
             </div>
           </div>
         </div>
+        </div>
+        )}
 
         {/* Retorno de pallets (obrigatório antes de conferir) */}
         {(() => {
@@ -1116,14 +1180,59 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
               const diferenca = skuTotals.excedente;
               const skuHasMultipleReads = inspection.itensConferidos.filter((i) => i.sku === item.sku).length > 1;
               const isCorteOpen = corteItemId === item.id;
+              const aberto = itensAbertos.includes(item.id) || isCorteOpen || pendingDeleteId === item.id;
+              const statusTxt = diferenca === 0 ? 'Conforme' : diferenca > 0 ? `+${diferenca} Sobra` : `${diferenca} Falta`;
+              const statusCor = diferenca === 0 ? 'text-emerald-700' : diferenca > 0 ? 'text-rose-600' : 'text-amber-600';
+
+              // Resumo em uma linha (toque para expandir)
+              if (!aberto) {
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => alternarItem(item.id)}
+                    aria-expanded={false}
+                    title={item.descricao}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-xs hover:border-amber-300 hover:bg-amber-50/40 transition-colors flex items-center gap-2 text-left"
+                  >
+                    <span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center">
+                      #{idx + 1}
+                    </span>
+                    <span className="shrink-0 text-base font-black font-mono text-slate-950 tracking-tight">{item.sku}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-mono font-bold text-slate-600">
+                      {item.lote || 'SEM LOTE'}
+                    </span>
+                    {item.corteOperacional && <Scissors className="w-3.5 h-3.5 shrink-0 text-orange-600" />}
+                    <span className="shrink-0 text-base font-black font-mono text-emerald-700">
+                      {item.quantidadeCarregada}
+                      <span className="text-[10px] font-normal text-slate-500"> vol.</span>
+                    </span>
+                    <span className={`shrink-0 text-[11px] font-bold ${statusCor}`}>{statusTxt}</span>
+                    <ChevronDown className="w-4 h-4 shrink-0 text-slate-400" />
+                  </button>
+                );
+              }
 
               return (
                 <div
                   key={item.id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs hover:shadow-sm transition-all space-y-3"
+                  className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm transition-all space-y-3"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
+                    <div
+                      className="min-w-0 flex-1 cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={true}
+                      title="Recolher"
+                      onClick={() => alternarItem(item.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          alternarItem(item.id);
+                        }
+                      }}
+                    >
                       <div className="flex items-center space-x-2 mb-1">
                         <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center">
                           #{idx + 1}
@@ -1157,14 +1266,25 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setPendingDeleteId(item.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors"
-                        title="Excluir leitura"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setPendingDeleteId(item.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors"
+                          title="Excluir leitura"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => alternarItem(item.id)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition-colors"
+                          title="Recolher"
+                          aria-label="Recolher item"
+                        >
+                          <ChevronDown className="w-4 h-4 rotate-180" />
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -1590,19 +1710,6 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                   <label className="text-sm font-bold text-slate-700">
                     Número do Lote do Produto:
                   </label>
-                  {/* Option to replicate lote */}
-                  <button
-                    type="button"
-                    onClick={() => setAutoReplicateLote(!autoReplicateLote)}
-                    className={`text-base font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
-                      autoReplicateLote
-                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                        : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {autoReplicateLote ? <Lock className="w-4 h-4 text-amber-600" /> : <Unlock className="w-4 h-4 text-slate-400" />}
-                    <span>Replicar p/ Próxima Leitura</span>
-                  </button>
                 </div>
 
                 <div className="flex space-x-2">
@@ -1611,8 +1718,36 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                     value={currentLote}
                     onChange={(e) => setCurrentLote(e.target.value.toUpperCase())}
                     placeholder="Digite o Lote (Ex: L-2609A)"
-                    className="flex-1 px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-base text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
+                    className="flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-base text-slate-900 focus:outline-none focus:border-amber-500 uppercase"
                   />
+                  {/* Atalho: preenche o lote com TISSUE */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentLote('TISSUE')}
+                    title="Preencher o lote com TISSUE"
+                    className={`shrink-0 px-3 py-2 rounded-xl border text-sm font-black tracking-wide transition-colors active:scale-95 ${
+                      currentLote === 'TISSUE'
+                        ? 'bg-indigo-700 border-indigo-700 text-white'
+                        : 'bg-white border-slate-300 text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50'
+                    }`}
+                  >
+                    TISSUE
+                  </button>
+                  {/* Replicar o lote para a próxima leitura */}
+                  <button
+                    type="button"
+                    onClick={() => setAutoReplicateLote(!autoReplicateLote)}
+                    aria-pressed={autoReplicateLote}
+                    title="Replicar o lote para a próxima leitura"
+                    className={`shrink-0 px-3 py-2 rounded-xl border text-sm font-bold flex items-center gap-1.5 transition-colors active:scale-95 ${
+                      autoReplicateLote
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : 'bg-slate-200 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {autoReplicateLote ? <Lock className="w-4 h-4 text-amber-600" /> : <Unlock className="w-4 h-4 text-slate-400" />}
+                    <span>Replicar</span>
+                  </button>
                   {isMultiLote && (
                     <input
                       type="number"
@@ -1624,16 +1759,6 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                       className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center font-black text-base text-slate-900 focus:outline-none focus:border-amber-500"
                       aria-label="Quantidade do lote"
                     />
-                  )}
-                  {replicatedLote && !isMultiLote && (
-                    <button
-                      type="button"
-                      onClick={() => setCurrentLote(replicatedLote)}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-sm"
-                      title="Colar Lote Anterior"
-                    >
-                      Colar ({replicatedLote})
-                    </button>
                   )}
                 </div>
 
@@ -1844,6 +1969,35 @@ export const LoadInspectionScreen: React.FC<LoadInspectionScreenProps> = ({
                         +{qty}
                       </button>
                     ))}
+                  </div>
+
+                  {/* Digitar um valor e somar ao acumulado */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      inputMode="numeric"
+                      value={accInput}
+                      onChange={(e) => setAccInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddTypedAccumulator();
+                        }
+                      }}
+                      placeholder="Digite a quantidade"
+                      aria-label="Quantidade a somar"
+                      className="flex-1 min-w-0 h-11 px-3 bg-white border border-slate-300 rounded-xl text-center font-black text-lg text-slate-900 placeholder:text-sm placeholder:font-semibold placeholder:text-slate-400 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddTypedAccumulator}
+                      disabled={!(Number(accInput) > 0)}
+                      className="shrink-0 h-11 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 disabled:opacity-50 text-slate-950 font-black text-sm flex items-center gap-1.5 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Somar
+                    </button>
                   </div>
 
                   {/* Visual chips of accumulated chunks */}

@@ -27,6 +27,10 @@ export interface SeparacaoDt {
     pallets: number;
     volumeDt?: number;
   }[];
+  // Baixas parciais já feitas (antes de concluir a separação da DT)
+  parciais?: SeparacaoDt['linhasBaixadas'];
+  // Separação encerrada sem baixar tudo: pallets que ficaram pendentes por SKU
+  pendencias?: { sku: string; descricao: string; pallets: number }[];
 }
 export type SeparacoesArmazem = Record<string, SeparacaoDt>;
 
