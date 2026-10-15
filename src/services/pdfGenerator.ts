@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import { CargoInspection, ClientNote, descreverMotivoCorte, notaPorCodigoCliente, resumoRetornoPallet } from '../types';
+import { embutirFotos } from './nuvem';
 import { formatarDuracao } from './tempo';
 
 export function generateBookCarregamentoPdf(
@@ -627,12 +628,14 @@ export const notaClienteDoBook = (inspection: CargoInspection, clientNotes: Clie
 };
 
 // Gera e baixa o Book completo (todas as informações e fotos). Usado pelo Book e pelo e-mail.
-export const baixarBookCarregamentoPdf = (
+export const baixarBookCarregamentoPdf = async (
   inspection: CargoInspection,
   empresaNome?: string,
   unidadeCD?: string,
   clientNotes: ClientNote[] = []
 ) => {
-  const { doc, filename } = generateBookCarregamentoPdf(inspection, empresaNome, unidadeCD, notaClienteDoBook(inspection, clientNotes));
+  // Fotos guardadas na nuvem (/api/fotos/...) voltam a ser imagens embutidas para o PDF
+  const completa = await embutirFotos(inspection);
+  const { doc, filename } = generateBookCarregamentoPdf(completa, empresaNome, unidadeCD, notaClienteDoBook(inspection, clientNotes));
   doc.save(filename);
 };

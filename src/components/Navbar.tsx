@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { PackageCheck, Volume2, VolumeX, LogOut, ChevronLeft, Truck, Maximize, Minimize } from 'lucide-react';
+import { PackageCheck, Volume2, VolumeX, LogOut, ChevronLeft, Truck, Maximize, Minimize, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { useStatusNuvem } from '../services/useNuvem';
 import { ActiveTab, CargoInspection, UserSession } from '../types';
 
 interface NavbarProps {
@@ -23,6 +24,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   soundEnabled,
   onToggleSound,
 }) => {
+  const nuvem = useStatusNuvem();
+
   // Tela cheia via Fullscreen API; acompanha também a saída pela tecla Esc / gesto do sistema
   const fullscreenSupported = typeof document !== 'undefined' && !!document.documentElement.requestFullscreen;
   const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
@@ -134,6 +137,36 @@ export const Navbar: React.FC<NavbarProps> = ({
               {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
           )}
+
+          {/* Nuvem: estado da sincronização (abre Configurações) */}
+          <button
+            type="button"
+            onClick={() => onNavigate('settings')}
+            title={
+              nuvem.estado === 'ok'
+                ? 'Nuvem: sincronizado'
+                : nuvem.estado === 'sincronizando'
+                ? 'Nuvem: sincronizando…'
+                : nuvem.estado === 'desconectado'
+                ? 'Nuvem: aparelho não conectado'
+                : 'Nuvem: sem conexão'
+            }
+            className={`p-2 rounded-xl text-xs transition-colors bg-slate-800 hover:bg-slate-700 ${
+              nuvem.estado === 'ok' || nuvem.estado === 'sincronizando'
+                ? 'text-sky-400'
+                : nuvem.estado === 'desconectado' || nuvem.estado === 'verificando'
+                ? 'text-slate-500'
+                : 'text-amber-400'
+            }`}
+          >
+            {nuvem.estado === 'sincronizando' ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : nuvem.estado === 'ok' ? (
+              <Cloud className="w-4 h-4" />
+            ) : (
+              <CloudOff className="w-4 h-4" />
+            )}
+          </button>
 
           {/* Sound Mute/Unmute */}
           <button

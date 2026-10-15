@@ -28,12 +28,13 @@ import {
   MessageSquare,
   AlertTriangle,
   BellRing,
-  ShieldAlert
+  ShieldAlert,
 } from 'lucide-react';
 import { AppSettings, ProductDePara, SheetRowDT, SheetRowFAT, ClientNote } from '../types';
 import { fetchSheetFAT, parseCsvToSheetFAT, splitCsvLine } from '../services/sheetFat';
 import { fetchSheetDT, parseCsvToSheetDT } from '../services/sheetDt';
 import { EnderecosConfig } from './EnderecosConfig';
+import { NuvemConfig } from './NuvemConfig';
 import { playBeep } from '../services/sound';
 
 interface SettingsScreenProps {
@@ -56,7 +57,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onResetAllData,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'depara' | 'sheet_dt' | 'sheet_fat' | 'client_notes' | 'lista_negra' | 'enderecos' | 'emails' | 'geral'
+    'depara' | 'sheet_dt' | 'sheet_fat' | 'client_notes' | 'lista_negra' | 'enderecos' | 'emails' | 'geral' | 'nuvem'
   >('depara');
 
   // Lista Negra (placas com observação)
@@ -802,10 +803,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <Building2 className="w-3.5 h-3.5 text-slate-600" />
           <span>Empresa & Dispositivo</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('nuvem')}
+          className={`px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+            activeTab === 'nuvem'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Cloud className="w-3.5 h-3.5 text-sky-600" />
+          <span>Nuvem</span>
+        </button>
       </div>
 
       {/* Endereços de Armazenagem (ruas, endereços e capacidade) */}
       {activeTab === 'enderecos' && <EnderecosConfig />}
+
+      {/* Banco de dados na nuvem (Cloudflare) */}
+      {activeTab === 'nuvem' && <NuvemConfig />}
 
       {/* ============================================================ */}
       {/* TAB 1: Tabela De/Para (EAN <-> SKU) */}

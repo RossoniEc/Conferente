@@ -26,6 +26,8 @@ import { SettingsScreen } from './components/SettingsScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { StorageScreen } from './components/StorageScreen';
 import { PickingScreen } from './components/PickingScreen';
+import { iniciarNuvem } from './services/nuvem';
+import { useAoSincronizar } from './services/useNuvem';
 
 export default function App() {
   const [user, setUser] = useState<UserSession | null>(() => {
@@ -54,6 +56,13 @@ export default function App() {
   });
 
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Nuvem (Cloudflare): sincroniza em segundo plano e recarrega o que outros aparelhos alteraram
+  useEffect(() => {
+    if (user) iniciarNuvem(user.name);
+  }, [user]);
+  useAoSincronizar(['inspections'], () => setInspections(storageService.getInspections()));
+  useAoSincronizar(['settings'], () => setSettings(storageService.getSettings()));
 
   // Sync state changes with storage
   useEffect(() => {
@@ -249,7 +258,7 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'storage' && <StorageScreen deParaList={settings.deParaList} soundEnabled={soundEnabled} />}
+        {currentTab === 'storage' && <StorageScreen deParaList={settings.deParaList} soundEnabled={soundEnabled} usuario={user.name} />}
 
         {currentTab === 'picking' && (
           <PickingScreen
@@ -257,6 +266,7 @@ export default function App() {
             inspections={inspections}
             deParaList={settings.deParaList}
             soundEnabled={soundEnabled}
+            usuario={user.name}
           />
         )}
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { AppSettings, CargoInspection, descreverMotivoCorte } from '../types';
 import { generateBookCarregamentoPdf } from '../services/pdfGenerator';
+import { embutirFotos } from '../services/nuvem';
 
 interface HistoryScreenProps {
   inspections: CargoInspection[];
@@ -289,8 +290,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ inspections, setti
     }
   };
 
-  const handleDownloadPdf = (insp: CargoInspection) => {
-    const { doc, filename } = generateBookCarregamentoPdf(insp, settings.empresaNome, settings.unidadeCD);
+  const handleDownloadPdf = async (insp: CargoInspection) => {
+    const { doc, filename } = generateBookCarregamentoPdf(await embutirFotos(insp), settings.empresaNome, settings.unidadeCD);
     doc.save(filename);
   };
 

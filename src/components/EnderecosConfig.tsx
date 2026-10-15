@@ -9,11 +9,14 @@ import {
   RuaConfig,
   todosEnderecos,
 } from '../services/armazem';
+import { useAoSincronizar } from '../services/useNuvem';
 
 // Configurações > Endereços: cadastro das ruas e endereços da Armazenagem (código e capacidade em pallets)
 export const EnderecosConfig: React.FC = () => {
   const [layout, setLayout] = useState<RuaConfig[]>(() => armazemStorage.getLayout());
   const [estoque, setEstoque] = useState<EstoqueArmazem>(() => armazemStorage.getEstoque());
+  useAoSincronizar(['armazem'], () => setEstoque(armazemStorage.getEstoque()));
+  useAoSincronizar(['armazem_layout'], () => setLayout(armazemStorage.getLayout()));
   const [ruaSel, setRuaSel] = useState(() => layout[0]?.nome || '');
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
 

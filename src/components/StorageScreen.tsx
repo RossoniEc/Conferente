@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Warehouse, Download, Search, X, Minus, Plus, Pencil, Lightbulb, MapPin, PackageOpen, ChevronDown, CheckCircle2, CalendarDays, Layers, ArrowRight, Camera } from 'lucide-react';
 import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 import { ProductDePara } from '../types';
@@ -13,18 +13,23 @@ import {
 } from '../services/armazem';
 import { localIsoDate } from '../services/sheetDt';
 import { playBeep } from '../services/sound';
+import { ArmazemPerformance } from './ArmazemPerformance';
+import { useAoSincronizar } from '../services/useNuvem';
 
 interface StorageScreenProps {
   deParaList: ProductDePara[];
   soundEnabled: boolean;
+  usuario: string; // nome do usuário logado (histórico de movimentações)
 }
 
 // Tela de Armazenagem: mapa de estoque por endereço e sugestões de otimização
-export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundEnabled }) => {
-  const [aba, setAba] = useState<'mapa' | 'otimizacao'>('mapa');
+export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundEnabled, usuario }) => {
+  const [aba, setAba] = useState<'mapa' | 'otimizacao' | 'performance'>('mapa');
   const [estoque, setEstoque] = useState<EstoqueArmazem>(() => armazemStorage.getEstoque());
   // Layout do armazém (Configurações > Endereços): ruas, endereços e capacidade de cada um
-  const [layout] = useState(() => armazemStorage.getLayout());
+  const [layout, setLayout] = useState(() => armazemStorage.getLayout());
+  useAoSincronizar(['armazem'], () => setEstoque(armazemStorage.getEstoque()));
+  useAoSincronizar(['armazem_layout'], () => setLayout(armazemStorage.getLayout()));
   const RUAS_L = layout.map((r) => r.nome);
   const endsDaRua = (r: string) => layout.find((x) => x.nome === r)?.enderecos.map((e) => e.codigo) || [];
   const cap = (cod: string) => capacidadeDe(layout, cod);
@@ -77,6 +82,14 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
 
   // Índice do item em edição no endereço (null = incluindo item novo)
   const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  // Pop-up de confirmação: some sozinho após 5 segundos
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const salvarEstoque = (novo: EstoqueArmazem) => {
     setEstoque(novo);
@@ -174,12 +187,38 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
     setErro(null);
     setEditIdx(null);
     playBeep('scan', soundEnabled);
+    // Lançamento gravado: fecha o card, volta ao mapa e confirma no pop-up
+    setToast(
+      `${endereco}: ${sku} / lote ${lote} — ${editIdx !== null ? 'alteração salva' : `${qtdInput} pallet(s) adicionado(s)`}.`
+    );
+    setEndereco(null);
   };
 
   // Grava os itens do endereço direto no estoque (ADICIONAR / SALVAR ALTERAÇÃO / RETIRAR já salvam)
   const [salvoMsg, setSalvoMsg] = useState<string | null>(null);
   const gravarEndereco = (itens: ItemEndereco[], msg: string) => {
     if (!endereco) return;
+    // Histórico: diferença entre o que havia no endereço e o que ficou
+    const chave = (i: ItemEndereco) => `${i.sku}|${i.lote}|${i.data || ''}`;
+    const antes = estoque[endereco] || [];
+    const chaves = Array.from(new Set([...antes, ...itens].map(chave)));
+    armazemStorage.registrarMovimentos(
+      chaves.map((k) => {
+        const a = antes.find((i) => chave(i) === k);
+        const d = itens.find((i) => chave(i) === k);
+        const delta = (d?.quantidade || 0) - (a?.quantidade || 0);
+        const ref = (d || a)!;
+        return {
+          tipo: delta > 0 ? ('entrada' as const) : ('baixa' as const),
+          sku: ref.sku,
+          lote: ref.lote,
+          endereco,
+          pallets: Math.abs(delta),
+          usuario,
+          origem: delta > 0 ? 'Armazenagem' : 'Ajuste na Armazenagem',
+        };
+      })
+    );
     setRascunho(itens);
     const novo = { ...estoque };
     if (itens.length) novo[endereco] = itens;
@@ -360,6 +399,17 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
       novo[m.para] = destino;
     });
     salvarEstoque(novo);
+    armazemStorage.registrarMovimentos(
+      plano.movimentos.map((m) => ({
+        tipo: 'transferencia' as const,
+        sku: plano.sku,
+        lote: m.lote,
+        endereco: `${m.de} → ${m.para}`,
+        pallets: m.quantidade,
+        usuario,
+        origem: 'Agrupamento',
+      }))
+    );
     setConfirmarAgrupar(null);
     setAgrupadoMsg(`SKU ${plano.sku} agrupado em ${plano.destino}: ${plano.movimentos.length} movimentação(ões) registrada(s).`);
     playBeep('success', soundEnabled);
@@ -397,6 +447,13 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
             className={`h-10 px-4 rounded-lg transition-all ${aba === 'otimizacao' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
             Otimização End.
+          </button>
+          <button
+            type="button"
+            onClick={() => setAba('performance')}
+            className={`h-10 px-4 rounded-lg transition-all ${aba === 'performance' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+          >
+            Performance
           </button>
         </div>
         <button
@@ -503,7 +560,7 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
             )}
           </div>
         </>
-      ) : (
+      ) : aba === 'otimizacao' ? (
         /* ---------- Otimização de endereços ---------- */
         <div className="space-y-4">
           {/* Agrupamento por SKU */}
@@ -731,6 +788,29 @@ export const StorageScreen: React.FC<StorageScreenProps> = ({ deParaList, soundE
                 Nenhuma sugestão no momento: os lotes estão concentrados e os endereços bem ocupados.
               </p>
             )}
+          </div>
+        </div>
+      ) : (
+        <ArmazemPerformance />
+      )}
+
+      {/* Pop-up: registro realizado com sucesso (5 s) */}
+      {toast && (
+        <div className="fixed top-3 inset-x-0 z-[60] flex justify-center px-3 pointer-events-none" role="status" aria-live="polite">
+          <div className="pointer-events-auto w-full max-w-md bg-emerald-600 text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 animate-fade-in">
+            <CheckCircle2 className="w-7 h-7 shrink-0" />
+            <span className="flex-1 min-w-0">
+              <span className="block font-black">Registro realizado com sucesso!</span>
+              <span className="block text-sm text-emerald-50 truncate">{toast}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="shrink-0 p-1.5 rounded-lg hover:bg-emerald-700"
+              aria-label="Fechar aviso"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

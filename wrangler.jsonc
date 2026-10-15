@@ -1,0 +1,28 @@
+{
+  // CargaCheck no Cloudflare: o Worker serve o site (dist) e a API /api/* com D1 + R2
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cargacheck",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cargacheck",
+      "database_id": "e4ee18ff-5355-4bc1-9a74-8e83d531c283",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FOTOS",
+      "bucket_name": "cargacheck-fotos"
+    }
+  ],
+  "observability": { "enabled": true }
+}

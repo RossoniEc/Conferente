@@ -4,12 +4,14 @@ import { CargoInspection, ProductDePara, SheetRowDT } from '../types';
 import { armazemStorage, localizarSku, formatarData, EstoqueArmazem, SeparacoesArmazem } from '../services/armazem';
 import { localIsoDate } from '../services/sheetDt';
 import { playBeep } from '../services/sound';
+import { useAoSincronizar } from '../services/useNuvem';
 
 interface PickingScreenProps {
   sheetRowsDT: SheetRowDT[];
   inspections: CargoInspection[];
   deParaList: ProductDePara[];
   soundEnabled: boolean;
+  usuario: string; // nome do usuário logado (histórico de movimentações)
 }
 
 interface LinhaSeparacao {
@@ -24,9 +26,11 @@ interface LinhaSeparacao {
 }
 
 // Separação de Carga: monta a lista de coleta por DT (endereço + lote, FIFO) e dá baixa no estoque
-export const PickingScreen: React.FC<PickingScreenProps> = ({ sheetRowsDT, inspections, deParaList, soundEnabled }) => {
+export const PickingScreen: React.FC<PickingScreenProps> = ({ sheetRowsDT, inspections, deParaList, soundEnabled, usuario }) => {
   const [estoque, setEstoque] = useState<EstoqueArmazem>(() => armazemStorage.getEstoque());
   const [separacoes, setSeparacoes] = useState<SeparacoesArmazem>(() => armazemStorage.getSeparacoes());
+  useAoSincronizar(['armazem'], () => setEstoque(armazemStorage.getEstoque()));
+  useAoSincronizar(['separacao'], () => setSeparacoes(armazemStorage.getSeparacoes()));
   const [filtro, setFiltro] = useState<'hoje' | 'todas'>('hoje');
   const [busca, setBusca] = useState('');
   const [dtSel, setDtSel] = useState<string | null>(null);
@@ -151,7 +155,18 @@ export const PickingScreen: React.FC<PickingScreenProps> = ({ sheetRowsDT, inspe
   const agora = () => new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
   // Retira os pallets das linhas informadas dos endereços e grava o estoque
-  const retirarDoEstoque = (linhas: LinhaSeparacao[]) => {
+  const retirarDoEstoque = (linhas: LinhaSeparacao[], dt: string) => {
+    armazemStorage.registrarMovimentos(
+      linhas.map((l) => ({
+        tipo: 'baixa' as const,
+        sku: l.sku,
+        lote: l.lote,
+        endereco: l.endereco,
+        pallets: l.pallets,
+        usuario,
+        origem: `Separação DT ${dt}`,
+      }))
+    );
     const novo: EstoqueArmazem = JSON.parse(JSON.stringify(estoque));
     linhas.forEach((l) => {
       const itens = novo[l.endereco] || [];
@@ -168,7 +183,7 @@ export const PickingScreen: React.FC<PickingScreenProps> = ({ sheetRowsDT, inspe
 
   // Baixa total: retira os pallets pendentes e conclui a separação da DT
   const baixarEstoque = (dt: string, linhas: LinhaSeparacao[]) => {
-    retirarDoEstoque(linhas);
+    retirarDoEstoque(linhas, dt);
     const k = dt.toUpperCase();
     const atual = separacoes[k] || { separados: {} };
     salvarSeparacoes({
@@ -200,7 +215,7 @@ export const PickingScreen: React.FC<PickingScreenProps> = ({ sheetRowsDT, inspe
   // Baixa parcial: retira só os itens/quantidades escolhidos; a DT segue aberta até completar
   const baixarParcial = (dt: string, escolhidas: LinhaSeparacao[], skus: { sku: string; pallets: number }[]) => {
     if (escolhidas.length === 0) return;
-    retirarDoEstoque(escolhidas);
+    retirarDoEstoque(escolhidas, dt);
     const k = dt.toUpperCase();
     const atual = separacoes[k] || { separados: {} };
     const stamp = Date.now();

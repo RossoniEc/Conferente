@@ -37,7 +37,8 @@ export const INITIAL_CLIENT_NOTES: ClientNote[] = [
   },
 ];
 
-export const INITIAL_DE_PARA: ProductDePara[] = [
+// Produtos de demonstração (removidos do cadastro): só servem para identificá-los e apagá-los
+const DE_PARA_DEMO: ProductDePara[] = [
   {
     id: 'dp-bramil-1',
     ean: '7891201304012',
@@ -138,6 +139,9 @@ export const INITIAL_DE_PARA: ProductDePara[] = [
     pesoUnitarioKg: 18.5,
   },
 ];
+
+// Cadastro de produtos começa vazio (importar em Configurações > De/Para)
+export const INITIAL_DE_PARA: ProductDePara[] = [];
 
 export const INITIAL_SHEET_DT: SheetRowDT[] = [
   // DT 61008899 (Google Sheet BRAMIL)
@@ -623,12 +627,10 @@ export const storageService = {
       if (!Array.isArray(parsed.listaNegra)) {
         parsed.listaNegra = INITIAL_LISTA_NEGRA;
       }
-      // Merge new dePara items if not present
-      INITIAL_DE_PARA.forEach((initDp) => {
-        if (!parsed.deParaList.some((dp) => dp.sku === initDp.sku)) {
-          parsed.deParaList.unshift(initDp);
-        }
-      });
+      // Remove os produtos de demonstração (mesmo id e EAN de teste); produtos cadastrados pelo usuário ficam
+      parsed.deParaList = (parsed.deParaList || []).filter(
+        (dp) => !DE_PARA_DEMO.some((demo) => demo.id === dp.id && demo.ean === dp.ean)
+      );
       // Troca a URL de demonstração da planilha FAT pela planilha real
       if (!parsed.googleSheetFatUrl || parsed.googleSheetFatUrl.includes('FAT-NFE-DEMO')) {
         parsed.googleSheetFatUrl = INITIAL_SETTINGS.googleSheetFatUrl;

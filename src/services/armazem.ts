@@ -69,6 +69,21 @@ export const capacidadeDe = (layout: RuaConfig[], codigo: string) =>
 const KEY_ESTOQUE = 'cargacheck_armazem';
 const KEY_SEPARACAO = 'cargacheck_separacao';
 const KEY_LAYOUT = 'cargacheck_armazem_layout';
+const KEY_MOVIMENTOS = 'cargacheck_armazem_mov';
+const MAX_MOVIMENTOS = 5000;
+
+// Histórico de movimentações de pallets (base da aba Performance)
+export interface MovimentoArmazem {
+  id: string;
+  tipo: 'entrada' | 'baixa' | 'transferencia';
+  sku: string;
+  lote: string;
+  endereco: string; // na transferência: "ORIGEM → DESTINO"
+  pallets: number;
+  usuario: string;
+  em: string; // data/hora ISO do lançamento
+  origem?: string; // ex.: "Armazenagem", "Separação DT 123", "Agrupamento"
+}
 
 const ler = <T>(key: string, padrao: T): T => {
   try {
@@ -97,6 +112,19 @@ export const armazemStorage = {
     return l && l.length ? l : layoutPadrao();
   },
   saveLayout: (l: RuaConfig[]) => gravar(KEY_LAYOUT, l),
+  getMovimentos: () => ler<MovimentoArmazem[]>(KEY_MOVIMENTOS, []),
+  // Acrescenta movimentações ao histórico (data/hora = agora)
+  registrarMovimentos: (novos: Omit<MovimentoArmazem, 'id' | 'em'>[]) => {
+    const validos = novos.filter((m) => m.pallets > 0);
+    if (validos.length === 0) return;
+    const em = new Date().toISOString();
+    const base = Date.now();
+    const todos = [
+      ...ler<MovimentoArmazem[]>(KEY_MOVIMENTOS, []),
+      ...validos.map((m, i) => ({ ...m, id: `${base}-${i}`, em })),
+    ];
+    gravar(KEY_MOVIMENTOS, todos.slice(-MAX_MOVIMENTOS));
+  },
 };
 
 // dd/mm/aaaa para exibição
