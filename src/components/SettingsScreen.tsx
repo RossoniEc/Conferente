@@ -339,18 +339,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     e.target.value = '';
     if (!file) return;
 
-    const processar = (raw: string) => {
-      const text = raw.replace(/^﻿/, '');
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
-      if (lines.length < 2) {
+    // Recebe as linhas já separadas em células (vindas do CSV/TXT ou da planilha do Excel)
+    const processar = (todas: string[][]) => {
+      const linhas = todas.map((r) => r.map((c) => String(c ?? '').trim())).filter((r) => r.some((c) => c));
+      const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+      // Cabeçalho: primeira linha (até a 10ª) que tenha uma coluna de SKU/EAN/código (pula títulos acima da tabela)
+      const iCab = Math.max(
+        0,
+        linhas.slice(0, 10).findIndex((r) => r.some((c) => /\b(sku|ean|codigo|cod)\b|gtin|barra/.test(norm(c))))
+      );
+      if (linhas.length - iCab < 2) {
         setImportDeParaMsg({ ok: false, msg: 'Arquivo vazio ou sem linhas de produto.' });
         return;
       }
-
-      const sep = lines[0].includes(';') ? ';' : lines[0].includes('\t') ? '\t' : ',';
-      const split = (l: string) => splitCsvLine(l, sep).map((c) => c.trim());
-      const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-      const header = split(lines[0]).map(norm);
+      const header = linhas[iCab].map(norm);
       // Cada campo pega a primeira coluna compatível ainda não usada (evita "codigo cliente" virar SKU ou cliente)
       const usados = new Set<number>();
       const col = (...tests: ((h: string) => boolean)[]) => {
@@ -366,7 +368,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       const iCodCliente = col((h) => h.includes('cliente') || h.includes('cod cli') || h.includes('cod_cli'));
       const iEan = col((h) => h.includes('ean') || h.includes('barra') || h.includes('gtin'));
-      const iSku = col((h) => h.includes('sku'), (h) => h.includes('codigo interno') || h.includes('material'));
+      const iSku = col(
+        (h) => h.includes('sku'),
+        (h) => h.includes('codigo interno') || h.includes('material'),
+        (h) => /^(cod|codigo)\b/.test(h) || h === 'item' || h === 'produto'
+      );
       const iDesc = col((h) => h.includes('descri'), (h) => h.includes('produto') || h.includes('nome'));
       const iUn = col((h) => h.startsWith('unid') || h === 'un');
       const iEmb = col((h) => h.includes('embal'));
@@ -401,8 +407,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       let eanCientifico = 0;
       let eanInvalido = 0;
 
-      lines.slice(1).forEach((line, idx) => {
-        const c = split(line);
+      linhas.slice(iCab + 1).forEach((c, idx) => {
         const sku = (c[iSku] || '').trim().toUpperCase();
         if (!sku) {
           ignorados++;
@@ -455,16 +460,56 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       });
     };
 
-    // Arquivos do Excel costumam vir em ANSI (Windows-1252): se o UTF-8 quebrar os acentos, relê nessa codificação
+    // Planilha do Excel (.xlsx): lê a primeira aba
+    if (/\.xlsx$/i.test(file.name)) {
+      import('read-excel-file/browser')
+        .then(({ readSheet }) => readSheet(file))
+        .then((rows) =>
+          processar(
+            rows.map((r) =>
+              r.map((v) =>
+                v === null || v === undefined
+                  ? ''
+                  : typeof v === 'number'
+                  ? Number.isInteger(v)
+                    ? v.toLocaleString('fullwide', { useGrouping: false })
+                    : String(v).replace('.', ',')
+                  : v instanceof Date
+                  ? v.toLocaleDateString('pt-BR')
+                  : String(v)
+              )
+            )
+          )
+        )
+        .catch(() =>
+          setImportDeParaMsg({ ok: false, msg: `Não foi possível ler "${file.name}". Salve a planilha como .xlsx ou CSV e tente de novo.` })
+        );
+      return;
+    }
+    if (/\.xls$/i.test(file.name)) {
+      setImportDeParaMsg({
+        ok: false,
+        msg: 'Formato .xls (Excel antigo) não é suportado. No Excel use "Salvar como" → Pasta de Trabalho do Excel (.xlsx) ou CSV.',
+      });
+      return;
+    }
+
+    // CSV/TXT (; , ou tab). Arquivos do Excel costumam vir em ANSI (Windows-1252): se o UTF-8 quebrar os acentos, relê nessa codificação
+    const processarTexto = (raw: string) => {
+      const lines = raw.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
+      const cab = lines.find((l) => /sku|ean|c[oó]d/i.test(l)) || lines[0] || '';
+      const sep = cab.includes(';') ? ';' : cab.includes('\t') ? '\t' : ',';
+      processar(lines.map((l) => splitCsvLine(l, sep)));
+    };
     const reader = new FileReader();
     reader.onload = (event) => {
       const utf8 = String(event.target?.result || '');
       if (!utf8.includes('�')) {
-        processar(utf8);
+        processarTexto(utf8);
         return;
       }
       const ansi = new FileReader();
-      ansi.onload = (ev) => processar(String(ev.target?.result || ''));
+      ansi.onload = (ev) => processarTexto(String(ev.target?.result || ''));
       ansi.readAsText(file, 'windows-1252');
     };
     reader.readAsText(file, 'UTF-8');
@@ -852,7 +897,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 type="button"
                 onClick={() => fileInputRefDePara.current?.click()}
                 className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5"
-                title="Importar lista de SKUs (CSV / TXT)"
+                title="Importar lista de SKUs (Excel .xlsx, CSV ou TXT)"
               >
                 <FileUp className="w-4 h-4" />
                 <span>Importar Lista</span>
@@ -860,7 +905,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <input
                 ref={fileInputRefDePara}
                 type="file"
-                accept=".csv,.txt,.tsv"
+                accept=".xlsx,.xls,.csv,.txt,.tsv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                 onChange={handleImportDePara}
                 className="hidden"
               />
